@@ -1,5 +1,5 @@
 <template>
-    <BaseTooltip ref="tooltip" :before-show="allowMedalTooltip" interactive :interactive-border="12" :show-delay="200" :show-animation="0" :hide-animation="0">
+    <BaseTooltip ref="tooltip" :append-to="appendMedalTooltip" :before-show="allowMedalTooltip" interactive :interactive-border="12" :show-delay="200" :show-animation="0" :hide-animation="0">
         <span class="player-name" :title="nameTitle" @click="interactive && $event.stopPropagation()" @pointerenter="pointerOver = true" @pointerleave="pointerOver = false">
             <RouterLink v-if="interactive" :to="playerProfileTo" class="link link--no-underline text">
                 <PlayerBadge :user-id="userId" :name="nameShown" :show-avatar="local.playerNameShowAvatar" />
@@ -53,6 +53,10 @@ const props = defineProps({
 
 // 榜上快速划过时，后打开的名字关掉先打开的，避免多块勋章提示叠在一起。
 let closeOpenNameMedals: (() => void) | null = null;
+
+function appendMedalTooltip() {
+    return document.body;
+}
 
 function claimNameMedals(close: () => void) {
     if (closeOpenNameMedals && closeOpenNameMedals !== close) closeOpenNameMedals();

@@ -9,7 +9,7 @@ from userprofile.models import UserProfile
 from videomanager.models import STNB_COEFFICIENTS, VideoModel
 from .cache import invalidate_catalog, read_catalog, read_player_states, write_catalog, write_player_states
 from .models import MedalDefinition, MedalGrant, MedalOverride, MedalOverrideLog, MedalPins, MedalScan, PlayerMedalSummary, PlayerProgress
-from .utils import basic_definitions, BVS_SCALE, DIRECTION_DESC, KIND_COMPOSITE, KIND_EVENT_PLACE, KIND_GSC_PLACE, KIND_GSC_STAT, KIND_MANUAL, KIND_MIN_VIDEO_ID, KIND_ONCE, KIND_PB, MAX_PINS, next_threshold, NOVICE_LEVELS, NOVICE_LEVELS_NF, NOVICE_MODES, NOVICE_REALNAME, NOVICE_REVIEW, NOVICE_SAOLEI, open_modes, reached_asc_stage, reached_desc_stage, scale_units, SHAREHOLDER_CODE, SHAREHOLDER_THRESHOLDS, STANDARD_LEVELS, STYLE_FL, STYLE_NF, threshold_index, THRP_SCALE, VIDEO_ONCE_CODES
+from .utils import basic_definitions, BVS_SCALE, DIRECTION_DESC, KIND_COMPOSITE, KIND_EVENT_PLACE, KIND_GSC_PLACE, KIND_GSC_STAT, KIND_MANUAL, KIND_MIN_VIDEO_ID, KIND_ONCE, KIND_PB, MAX_PINS, next_threshold, NOVICE_LEVELS, NOVICE_LEVELS_NF, NOVICE_MODES, NOVICE_REALNAME, NOVICE_REVIEW, NOVICE_SAOLEI, open_modes, reached_asc_stage, reached_desc_stage, scale_units, SERIES_SHAREHOLDER, SHAREHOLDER_CODE, SHAREHOLDER_THRESHOLDS, STANDARD_LEVELS, STYLE_FL, STYLE_NF, threshold_index, THRP_SCALE, VIDEO_ONCE_CODES
 
 
 class MedalError(Exception):
@@ -47,7 +47,7 @@ def ensure_shareholder_definition():
     definition, _created = MedalDefinition.objects.get_or_create(
         code=SHAREHOLDER_CODE,
         defaults={
-            'series': '原始股东', 'kind': KIND_MIN_VIDEO_ID, 'metric': 'video_id', 'direction': DIRECTION_DESC,
+            'series': SERIES_SHAREHOLDER, 'kind': KIND_MIN_VIDEO_ID, 'metric': 'video_id', 'direction': DIRECTION_DESC,
             'thresholds': list(SHAREHOLDER_THRESHOLDS), 'score_by_stage': [], 'active': True,
         },
     )

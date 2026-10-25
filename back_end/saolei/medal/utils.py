@@ -2,31 +2,28 @@ from datetime import timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from math import floor
 
-from config.text_choices import MS_TextChoices
+from config.text_choices import Medal_TextChoices, MS_TextChoices
 from speedranking.saolei.utils import BVS_SCALE
 
-KIND_PB = 'pb'
-KIND_COMPOSITE = 'composite'
-KIND_ONCE = 'once'
-KIND_COUNT = 'count'
-KIND_BV_SET = 'bv_set'
-KIND_CELL_MASK = 'cell_mask'
-KIND_EVENT_PLACE = 'event_place'
-KIND_GSC_STAT = 'gsc_stat'
-KIND_GSC_PLACE = 'gsc_place'
-KIND_MANUAL = 'manual'
-KIND_MIN_VIDEO_ID = 'min_video_id'
-KINDS = (
-    KIND_PB, KIND_COMPOSITE, KIND_ONCE, KIND_COUNT, KIND_BV_SET, KIND_CELL_MASK,
-    KIND_EVENT_PLACE, KIND_GSC_STAT, KIND_GSC_PLACE, KIND_MANUAL, KIND_MIN_VIDEO_ID,
-)
+KIND_PB = Medal_TextChoices.Kind.PB
+KIND_COMPOSITE = Medal_TextChoices.Kind.COMPOSITE
+KIND_ONCE = Medal_TextChoices.Kind.ONCE
+KIND_COUNT = Medal_TextChoices.Kind.COUNT
+KIND_BV_SET = Medal_TextChoices.Kind.BV_SET
+KIND_CELL_MASK = Medal_TextChoices.Kind.CELL_MASK
+KIND_EVENT_PLACE = Medal_TextChoices.Kind.EVENT_PLACE
+KIND_GSC_STAT = Medal_TextChoices.Kind.GSC_STAT
+KIND_GSC_PLACE = Medal_TextChoices.Kind.GSC_PLACE
+KIND_MANUAL = Medal_TextChoices.Kind.MANUAL
+KIND_MIN_VIDEO_ID = Medal_TextChoices.Kind.MIN_VIDEO_ID
+KINDS = Medal_TextChoices.Kind.values
 SHAREHOLDER_CODE = 'shareholder.origin'
 SHAREHOLDER_THRESHOLDS = [100000, 10000, 1000]
-DIRECTION_ASC = 'asc'
-DIRECTION_DESC = 'desc'
-DIRECTIONS = (DIRECTION_ASC, DIRECTION_DESC)
+DIRECTION_ASC = Medal_TextChoices.Direction.ASC
+DIRECTION_DESC = Medal_TextChoices.Direction.DESC
+DIRECTIONS = Medal_TextChoices.Direction.values
 MAX_PINS = 6
-CATALOG_CACHE_KEY = 'medal:catalog'
+CATALOG_CACHE_KEY = 'medal:catalog:v2'
 CATALOG_CACHE_SECONDS = 300
 STATE_CACHE_KEY = 'medal:display:v3:{user_id}'
 STATE_CACHE_SECONDS = 300
@@ -38,9 +35,9 @@ THRP_SCALE = 100000
 STANDARD_LEVELS = (
     MS_TextChoices.Level.BEGINNER, MS_TextChoices.Level.INTERMEDIATE, MS_TextChoices.Level.EXPERT,
 )
-STYLE_ANY = 'any'
-STYLE_NF = 'nf'
-STYLE_FL = 'fl'
+STYLE_ANY = Medal_TextChoices.Style.ANY
+STYLE_NF = Medal_TextChoices.Style.NF
+STYLE_FL = Medal_TextChoices.Style.FL
 NOVICE_REALNAME = 'novice.realname'
 NOVICE_REVIEW = 'novice.review'
 NOVICE_LEVELS = 'novice.levels'
@@ -48,22 +45,23 @@ NOVICE_LEVELS_NF = 'novice.levels_nf'
 NOVICE_MODES = 'novice.modes'
 NOVICE_SAOLEI = 'novice.saolei'
 VIDEO_ONCE_CODES = (NOVICE_REVIEW, NOVICE_LEVELS, NOVICE_LEVELS_NF, NOVICE_MODES)
-SERIES_REALNAME = '实名在册'
-SERIES_REVIEW = '录像过审'
-SERIES_LEVELS = '扫雷新秀'
-SERIES_LEVELS_NF = '盲扫新秀'
-SERIES_MODES = '走马观花'
-SERIES_SAOLEI = '旧迹新篇'
-SERIES_BREAKTHROUGH = '破境'
-SERIES_SPEED = '神速'
-SERIES_MASTERY = '通明'
-SERIES_FLAGLESS_BREAKTHROUGH = '盲扫破境'
-SERIES_FLAGLESS_SPEED = '盲扫神速'
-SERIES_FLAGLESS_MASTERY = '盲扫通明'
-SERIES_FLAGLESS_PRECISION = '盲扫·精工'
-SERIES_FLAGGED_PRECISION = '标旗·精工'
-SERIES_THREE_FLAGLESS = '三阶盲扫·精工'
-SERIES_THREE_FLAGGED = '三阶标旗·精工'
+SERIES_REALNAME = Medal_TextChoices.Series.REGISTERED
+SERIES_REVIEW = Medal_TextChoices.Series.REVIEWED
+SERIES_LEVELS = Medal_TextChoices.Series.LEVELS
+SERIES_LEVELS_NF = Medal_TextChoices.Series.LEVELS_NF
+SERIES_MODES = Medal_TextChoices.Series.MODES
+SERIES_SAOLEI = Medal_TextChoices.Series.SAOLEI
+SERIES_BREAKTHROUGH = Medal_TextChoices.Series.BREAKTHROUGH
+SERIES_SPEED = Medal_TextChoices.Series.SPEED
+SERIES_MASTERY = Medal_TextChoices.Series.MASTERY
+SERIES_FLAGLESS_BREAKTHROUGH = Medal_TextChoices.Series.FLAGLESS_BREAKTHROUGH
+SERIES_FLAGLESS_SPEED = Medal_TextChoices.Series.FLAGLESS_SPEED
+SERIES_FLAGLESS_MASTERY = Medal_TextChoices.Series.FLAGLESS_MASTERY
+SERIES_FLAGLESS_PRECISION = Medal_TextChoices.Series.FLAGLESS_PRECISION
+SERIES_FLAGGED_PRECISION = Medal_TextChoices.Series.FLAGGED_PRECISION
+SERIES_THREE_FLAGLESS = Medal_TextChoices.Series.THREE_FLAGLESS_PRECISION
+SERIES_THREE_FLAGGED = Medal_TextChoices.Series.THREE_FLAGGED_PRECISION
+SERIES_SHAREHOLDER = Medal_TextChoices.Series.SHAREHOLDER
 TIME_SECONDS = {
     MS_TextChoices.Level.BEGINNER: (20, 15, 12, 10, 8, 6, 5, 4, 3, 2, 1),
     MS_TextChoices.Level.INTERMEDIATE: (150, 100, 80, 60, 50, 40, 30, 25, 20, 15, 12, 10),

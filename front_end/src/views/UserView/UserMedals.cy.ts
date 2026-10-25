@@ -11,9 +11,9 @@ import type { MedalItem, PlayerMedals } from '@/services/medalService';
 import { uploadVideoFile } from '@/services/videoUploadService';
 import { store } from '@/store';
 
-function summary(scanPending: boolean, series = '实名在册'): PlayerMedals {
+function summary(scanPending: boolean, series = 'registered'): PlayerMedals {
     const item: MedalItem = {
-        code: series === '录像过审' ? 'novice.review' : 'novice.realname',
+        code: series === 'reviewed' ? 'novice.review' : 'novice.realname',
         series,
         subseries: '',
         kind: 'once',
@@ -83,7 +83,7 @@ describe('player medal subscriptions', () => {
         get.onFirstCall().resolves({ data: summary(false) });
         get.onSecondCall().returns(waiting.promise);
         get.onThirdCall().returns(completed.promise);
-        get.onCall(3).resolves({ data: summary(false, '录像过审') });
+        get.onCall(3).resolves({ data: summary(false, 'reviewed') });
         cy.stub($axios, 'post').resolves({ data: { type: 'success', data: { id: 123, state: 'c' } } });
         cy.mount(defineComponent({
             expose: [],
@@ -119,7 +119,7 @@ describe('player medal subscriptions', () => {
             const old = deferred();
             const get = cy.stub($axios, 'get');
             get.onFirstCall().returns(old.promise);
-            get.onSecondCall().resolves({ data: summary(false, '录像过审') });
+            get.onSecondCall().resolves({ data: summary(false, 'reviewed') });
             cy.mount(defineComponent({
                 expose: [],
                 render: () => h(ProfilePins, { userId: playerId.value }),
@@ -199,7 +199,7 @@ describe('player medal subscriptions', () => {
         const router = createProfileRouter();
         const showSidebar = ref(true);
         const pending = deferred();
-        const updated = summary(false, '录像过审');
+        const updated = summary(false, 'reviewed');
         const get = cy.stub($axios, 'get');
         get.onFirstCall().resolves({ data: summary(false) });
         get.onSecondCall().returns(pending.promise);

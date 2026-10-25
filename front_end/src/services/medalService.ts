@@ -300,23 +300,23 @@ export function fetchPlayerMedalState(userId: number): Promise<MedalStateRecord[
 }
 
 const medalSeriesKeys: Record<string, keyof typeof en.medal.series> = {
-    破境: 'breakthrough',
-    神速: 'speed',
-    通明: 'mastery',
-    盲扫破境: 'flaglessBreakthrough',
-    盲扫神速: 'flaglessSpeed',
-    盲扫通明: 'flaglessMastery',
-    盲扫·精工: 'flaglessPrecision',
-    标旗·精工: 'flaggedPrecision',
-    三阶盲扫·精工: 'threeTierFlaglessPrecision',
-    三阶标旗·精工: 'threeTierFlaggedPrecision',
-    实名在册: 'registered',
-    录像过审: 'reviewed',
-    扫雷新秀: 'firstGlimpse',
-    盲扫新秀: 'anotherPath',
-    走马观花: 'grandTour',
-    旧迹新篇: 'oldTraces',
-    原始股东: 'shareholder',
+    breakthrough: 'breakthrough',
+    speed: 'speed',
+    mastery: 'mastery',
+    flagless_breakthrough: 'flaglessBreakthrough',
+    flagless_speed: 'flaglessSpeed',
+    flagless_mastery: 'flaglessMastery',
+    flagless_precision: 'flaglessPrecision',
+    flagged_precision: 'flaggedPrecision',
+    three_flagless_precision: 'threeTierFlaglessPrecision',
+    three_flagged_precision: 'threeTierFlaggedPrecision',
+    registered: 'registered',
+    reviewed: 'reviewed',
+    levels: 'firstGlimpse',
+    levels_nf: 'anotherPath',
+    modes: 'grandTour',
+    saolei: 'oldTraces',
+    shareholder: 'shareholder',
 };
 
 export function medalSeriesLabel(series: string, locale: string): string {
@@ -325,12 +325,12 @@ export function medalSeriesLabel(series: string, locale: string): string {
     return (locale.startsWith('zh') ? zhCn.medal.series : en.medal.series)[key];
 }
 
-const timeSeries = new Set(['破境', '盲扫破境']);
-const speedSeries = new Set(['神速', '盲扫神速']);
-const masterySeries = new Set(['通明', '盲扫通明']);
-const precisionSeries = new Set(['盲扫·精工', '标旗·精工', '三阶盲扫·精工', '三阶标旗·精工']);
-const noviceSeries = new Set(['实名在册', '录像过审', '扫雷新秀', '盲扫新秀', '走马观花', '旧迹新篇']);
-const badgeSeries = new Set(['盲扫破境', '盲扫神速', '盲扫通明', '盲扫·精工', '三阶盲扫·精工']);
+const timeSeries = new Set(['breakthrough', 'flagless_breakthrough']);
+const speedSeries = new Set(['speed', 'flagless_speed']);
+const masterySeries = new Set(['mastery', 'flagless_mastery']);
+const precisionSeries = new Set(['flagless_precision', 'flagged_precision', 'three_flagless_precision', 'three_flagged_precision']);
+const noviceSeries = new Set(['registered', 'reviewed', 'levels', 'levels_nf', 'modes', 'saolei']);
+const badgeSeries = new Set(['flagless_breakthrough', 'flagless_speed', 'flagless_mastery', 'flagless_precision', 'three_flagless_precision']);
 
 function trimScaled(stage: number, scale: number) {
     return (stage / scale).toFixed(5).replace(/0+$/, '').replace(/\.$/, '');
@@ -351,33 +351,33 @@ export function medalLevel(code: string): 'b' | 'i' | 'e' | '' {
 }
 
 const medalMeaningKey = {
-    破境: 'time',
-    盲扫破境: 'timeNf',
-    神速: 'speed',
-    盲扫神速: 'speedNf',
-    通明: 'mastery',
-    盲扫通明: 'masteryNf',
-    盲扫·精工: 'precisionNf',
-    标旗·精工: 'precisionFl',
-    三阶盲扫·精工: 'threeNf',
-    三阶标旗·精工: 'threeFl',
-    实名在册: 'registered',
-    录像过审: 'reviewed',
-    扫雷新秀: 'levels',
-    盲扫新秀: 'levelsNf',
-    走马观花: 'modes',
-    旧迹新篇: 'saolei',
-    原始股东: 'shareholder',
+    breakthrough: 'time',
+    flagless_breakthrough: 'timeNf',
+    speed: 'speed',
+    flagless_speed: 'speedNf',
+    mastery: 'mastery',
+    flagless_mastery: 'masteryNf',
+    flagless_precision: 'precisionNf',
+    flagged_precision: 'precisionFl',
+    three_flagless_precision: 'threeNf',
+    three_flagged_precision: 'threeFl',
+    registered: 'registered',
+    reviewed: 'reviewed',
+    levels: 'levels',
+    levels_nf: 'levelsNf',
+    modes: 'modes',
+    saolei: 'saolei',
+    shareholder: 'shareholder',
 } as const;
 
 const medalFlavorKey = {
-    实名在册: 'registered',
-    录像过审: 'reviewed',
-    扫雷新秀: 'levels',
-    盲扫新秀: 'levelsNf',
-    走马观花: 'modes',
-    旧迹新篇: 'saolei',
-    原始股东: 'shareholder',
+    registered: 'registered',
+    reviewed: 'reviewed',
+    levels: 'levels',
+    levels_nf: 'levelsNf',
+    modes: 'modes',
+    saolei: 'saolei',
+    shareholder: 'shareholder',
 } as const;
 
 function medalCopy(locale: string) {
@@ -390,7 +390,7 @@ function fillMedalText(template: string, values: Record<string, string>) {
 
 function medalPlainStage(series: string, stage: number | null) {
     if (stage == null) return '';
-    if (series === '破境' || series === '盲扫破境') return String(stage / 1000);
+    if (series === 'breakthrough' || series === 'flagless_breakthrough') return String(stage / 1000);
     return medalStageLabel(series, stage) || String(stage);
 }
 
@@ -404,7 +404,7 @@ export function medalCaption(series: string, code: string, stage: number | null,
     const level = levelCode ? levelNames[levelCode] : '';
     let title = seriesName;
     if (stageName) {
-        if (series.startsWith('三阶') || !level) title = chinese ? `${seriesName}·${stageName}` : `${seriesName} · ${stageName}`;
+        if (series.startsWith('three_') || !level) title = chinese ? `${seriesName}·${stageName}` : `${seriesName} · ${stageName}`;
         else if (!chinese) title = `${level} ${seriesName} · ${stageName}`;
         else title = `${level}${seriesName}·${stageName}`;
     }
@@ -419,23 +419,23 @@ export function medalCaption(series: string, code: string, stage: number | null,
 }
 
 const medalCodeSeries = [
-    ['ability.time.nf.', '盲扫破境'],
-    ['ability.time.', '破境'],
-    ['ability.bvs.nf.', '盲扫神速'],
-    ['ability.bvs.', '神速'],
-    ['ability.stnb.nf.', '盲扫通明'],
-    ['ability.stnb.', '通明'],
-    ['ability.thrp.nf.three', '三阶盲扫·精工'],
-    ['ability.thrp.nf.', '盲扫·精工'],
-    ['ability.thrp.fl.three', '三阶标旗·精工'],
-    ['ability.thrp.fl.', '标旗·精工'],
-    ['novice.realname', '实名在册'],
-    ['novice.review', '录像过审'],
-    ['novice.levels_nf', '盲扫新秀'],
-    ['novice.levels', '扫雷新秀'],
-    ['novice.modes', '走马观花'],
-    ['novice.saolei', '旧迹新篇'],
-    ['shareholder.', '原始股东'],
+    ['ability.time.nf.', 'flagless_breakthrough'],
+    ['ability.time.', 'breakthrough'],
+    ['ability.bvs.nf.', 'flagless_speed'],
+    ['ability.bvs.', 'speed'],
+    ['ability.stnb.nf.', 'flagless_mastery'],
+    ['ability.stnb.', 'mastery'],
+    ['ability.thrp.nf.three', 'three_flagless_precision'],
+    ['ability.thrp.nf.', 'flagless_precision'],
+    ['ability.thrp.fl.three', 'three_flagged_precision'],
+    ['ability.thrp.fl.', 'flagged_precision'],
+    ['novice.realname', 'registered'],
+    ['novice.review', 'reviewed'],
+    ['novice.levels_nf', 'levels_nf'],
+    ['novice.levels', 'levels'],
+    ['novice.modes', 'modes'],
+    ['novice.saolei', 'saolei'],
+    ['shareholder.', 'shareholder'],
 ] as const;
 
 const medalSeriesByCodePrefix = [...medalCodeSeries].sort((left, right) => right[0].length - left[0].length);
@@ -446,29 +446,29 @@ export function medalSeriesFromCode(code: string): string {
 }
 
 const medalArtFolder: Record<string, string> = {
-    破境: 'breakthrough',
-    神速: 'speed',
-    通明: 'mastery',
-    盲扫破境: 'breakthrough-nf',
-    盲扫神速: 'speed-nf',
-    盲扫通明: 'mastery-nf',
-    盲扫·精工: 'precision-nf',
-    标旗·精工: 'precision',
-    三阶盲扫·精工: 'precision-nf-three',
-    三阶标旗·精工: 'precision-three',
-    实名在册: 'registered',
-    录像过审: 'reviewed',
-    扫雷新秀: 'levels',
-    盲扫新秀: 'levels-nf',
-    走马观花: 'modes',
-    旧迹新篇: 'saolei',
-    原始股东: 'shareholder',
+    breakthrough: 'breakthrough',
+    speed: 'speed',
+    mastery: 'mastery',
+    flagless_breakthrough: 'breakthrough-nf',
+    flagless_speed: 'speed-nf',
+    flagless_mastery: 'mastery-nf',
+    flagless_precision: 'precision-nf',
+    flagged_precision: 'precision',
+    three_flagless_precision: 'precision-nf-three',
+    three_flagged_precision: 'precision-three',
+    registered: 'registered',
+    reviewed: 'reviewed',
+    levels: 'levels',
+    levels_nf: 'levels-nf',
+    modes: 'modes',
+    saolei: 'saolei',
+    shareholder: 'shareholder',
 };
 
 export function medalArtMetal(series: string, code: string, stage: number | null): 'b' | 'i' | 'e' {
     const level = medalLevel(code);
     if (level) return level;
-    if (series !== '原始股东') return 'e';
+    if (series !== 'shareholder') return 'e';
     // 越晚偏铜，居中偏银，最早保持金色。
     if (stage != null && stage <= 1000) return 'e';
     if (stage != null && stage <= 10000) return 'i';
@@ -481,7 +481,7 @@ export function medalArtBadge(series: string): boolean {
 
 /** 叠在底图上的短数字。称号里的 Sub 前缀和系列名仍由页面文案显示。 */
 export function medalArtPlate(series: string, stage: number | null): string {
-    if (stage == null || noviceSeries.has(series) || series === '原始股东') return '';
+    if (stage == null || noviceSeries.has(series) || series === 'shareholder') return '';
     if (timeSeries.has(series)) return String(stage / 1000);
     if (speedSeries.has(series)) return trimScaled(stage, 10000);
     if (precisionSeries.has(series)) return trimScaled(stage, 100000);

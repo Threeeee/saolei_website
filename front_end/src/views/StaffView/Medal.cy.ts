@@ -7,7 +7,7 @@ import { store } from '@/store';
 
 const definition: StaffMedalDefinition = {
     code: 'time.b',
-    series: '破境',
+    series: 'breakthrough',
     subseries: '',
     kind: 'pb',
     metric: 'time',

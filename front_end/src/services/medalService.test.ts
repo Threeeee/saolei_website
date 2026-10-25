@@ -27,38 +27,38 @@ function deferred() {
 describe('shared medal image parts', () => {
     it('reuses one gold base and draws the number in the page', async () => {
         const { medalArtPlate, medalArtUrl } = await import('./medalService');
-        expect(medalArtUrl('神速', 'ability.bvs.e', 50000)).toBe('/assets/medals/speed.webp?v=5');
-        expect(medalArtUrl('神速', 'ability.bvs.b', 15000)).toBe('/assets/medals/speed.webp?v=5');
-        expect(medalArtPlate('神速', 50000)).toBe('5');
-        expect(medalArtPlate('神速', 15000)).toBe('1.5');
-        expect(medalArtPlate('破境', 20000)).toBe('20');
-        expect(medalArtPlate('实名在册', 1)).toBe('');
-        expect(medalArtPlate('原始股东', 1000)).toBe('');
-        expect(medalArtUrl('实名在册', 'novice.realname', 1)).toBe('/assets/medals/registered.webp?v=5');
-        expect(medalArtUrl('原始股东', 'shareholder.origin', 1000)).toBe('/assets/medals/shareholder.webp?v=5');
-        expect(medalArtUrl('神速', 'ability.bvs.e', null)).toBeUndefined();
+        expect(medalArtUrl('speed', 'ability.bvs.e', 50000)).toBe('/assets/medals/speed.webp?v=5');
+        expect(medalArtUrl('speed', 'ability.bvs.b', 15000)).toBe('/assets/medals/speed.webp?v=5');
+        expect(medalArtPlate('speed', 50000)).toBe('5');
+        expect(medalArtPlate('speed', 15000)).toBe('1.5');
+        expect(medalArtPlate('breakthrough', 20000)).toBe('20');
+        expect(medalArtPlate('registered', 1)).toBe('');
+        expect(medalArtPlate('shareholder', 1000)).toBe('');
+        expect(medalArtUrl('registered', 'novice.realname', 1)).toBe('/assets/medals/registered.webp?v=5');
+        expect(medalArtUrl('shareholder', 'shareholder.origin', 1000)).toBe('/assets/medals/shareholder.webp?v=5');
+        expect(medalArtUrl('speed', 'ability.bvs.e', null)).toBeUndefined();
         expect(medalArtUrl('unknown', 'unknown', 1)).toBeUndefined();
     });
 
     it('maps a medal code prefix onto the series used by the art', async () => {
         const { medalSeriesFromCode } = await import('./medalService');
-        expect(medalSeriesFromCode('ability.time.b')).toBe('破境');
-        expect(medalSeriesFromCode('ability.time.nf.e')).toBe('盲扫破境');
-        expect(medalSeriesFromCode('ability.bvs.i')).toBe('神速');
-        expect(medalSeriesFromCode('ability.bvs.nf.b')).toBe('盲扫神速');
-        expect(medalSeriesFromCode('ability.stnb.e')).toBe('通明');
-        expect(medalSeriesFromCode('ability.stnb.nf.b')).toBe('盲扫通明');
-        expect(medalSeriesFromCode('ability.thrp.nf.b')).toBe('盲扫·精工');
-        expect(medalSeriesFromCode('ability.thrp.nf.three')).toBe('三阶盲扫·精工');
-        expect(medalSeriesFromCode('ability.thrp.fl.e')).toBe('标旗·精工');
-        expect(medalSeriesFromCode('ability.thrp.fl.three')).toBe('三阶标旗·精工');
-        expect(medalSeriesFromCode('novice.realname')).toBe('实名在册');
-        expect(medalSeriesFromCode('novice.review')).toBe('录像过审');
-        expect(medalSeriesFromCode('novice.levels')).toBe('扫雷新秀');
-        expect(medalSeriesFromCode('novice.levels_nf')).toBe('盲扫新秀');
-        expect(medalSeriesFromCode('novice.modes')).toBe('走马观花');
-        expect(medalSeriesFromCode('novice.saolei')).toBe('旧迹新篇');
-        expect(medalSeriesFromCode('shareholder.origin')).toBe('原始股东');
+        expect(medalSeriesFromCode('ability.time.b')).toBe('breakthrough');
+        expect(medalSeriesFromCode('ability.time.nf.e')).toBe('flagless_breakthrough');
+        expect(medalSeriesFromCode('ability.bvs.i')).toBe('speed');
+        expect(medalSeriesFromCode('ability.bvs.nf.b')).toBe('flagless_speed');
+        expect(medalSeriesFromCode('ability.stnb.e')).toBe('mastery');
+        expect(medalSeriesFromCode('ability.stnb.nf.b')).toBe('flagless_mastery');
+        expect(medalSeriesFromCode('ability.thrp.nf.b')).toBe('flagless_precision');
+        expect(medalSeriesFromCode('ability.thrp.nf.three')).toBe('three_flagless_precision');
+        expect(medalSeriesFromCode('ability.thrp.fl.e')).toBe('flagged_precision');
+        expect(medalSeriesFromCode('ability.thrp.fl.three')).toBe('three_flagged_precision');
+        expect(medalSeriesFromCode('novice.realname')).toBe('registered');
+        expect(medalSeriesFromCode('novice.review')).toBe('reviewed');
+        expect(medalSeriesFromCode('novice.levels')).toBe('levels');
+        expect(medalSeriesFromCode('novice.levels_nf')).toBe('levels_nf');
+        expect(medalSeriesFromCode('novice.modes')).toBe('modes');
+        expect(medalSeriesFromCode('novice.saolei')).toBe('saolei');
+        expect(medalSeriesFromCode('shareholder.origin')).toBe('shareholder');
         expect(medalSeriesFromCode('manual.override')).toBe('');
     });
 });
@@ -429,12 +429,12 @@ describe('bounded synchronization after uploads', () => {
 describe('medalCaption', () => {
     it('names a worn ability medal from its code and stage', async () => {
         const { medalCaption } = await import('./medalService');
-        expect(medalCaption('破境', 'ability.time.e', 30000, 'en')).toEqual({
+        expect(medalCaption('breakthrough', 'ability.time.e', 30000, 'en')).toEqual({
             title: 'Expert Breakthrough · Sub30',
             meaning: 'Expert best time reached 30s.',
             flavor: '',
         });
-        expect(medalCaption('原始股东', 'shareholder.origin', 1000, 'zh-cn')).toMatchObject({
+        expect(medalCaption('shareholder', 'shareholder.origin', 1000, 'zh-cn')).toMatchObject({
             title: '原始股东·1000',
             flavor: '老资历',
         });

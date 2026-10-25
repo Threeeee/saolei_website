@@ -78,12 +78,12 @@ interface MedalCategoryGroup { id: MedalCategory; sections: MedalSection[] }
 const categoryOrder: MedalCategory[] = ['ability', 'novice', 'practice', 'contest', 'contribution', 'other'];
 const levelRank: Record<string, number> = { b: 0, i: 1, e: 2 };
 const seriesByCategory: Record<MedalCategory, string[]> = {
-    ability: ['破境', '神速', '通明', '盲扫破境', '盲扫神速', '盲扫通明', '盲扫·精工', '标旗·精工', '三阶盲扫·精工', '三阶标旗·精工'],
-    novice: ['实名在册', '录像过审', '扫雷新秀', '盲扫新秀', '走马观花', '旧迹新篇'],
+    ability: ['breakthrough', 'speed', 'mastery', 'flagless_breakthrough', 'flagless_speed', 'flagless_mastery', 'flagless_precision', 'flagged_precision', 'three_flagless_precision', 'three_flagged_precision'],
+    novice: ['registered', 'reviewed', 'levels', 'levels_nf', 'modes', 'saolei'],
     practice: [],
     contest: [],
     contribution: [],
-    other: ['原始股东'],
+    other: ['shareholder'],
 };
 
 const summary = ref<PlayerMedals | null>(null);

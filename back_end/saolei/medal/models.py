@@ -1,22 +1,22 @@
 from django.db import models
 
+from config.text_choices import Medal_TextChoices
 from tournament.models import Tournament, TournamentParticipant
 from userprofile.models import UserProfile
 from videomanager.models import VideoModel
-from .utils import DIRECTIONS, KINDS
 
 
 class MedalDefinition(models.Model):
     """一个 code 一行。改档是改这行的阈值或名单，不复制旧定义。"""
 
     code = models.CharField(max_length=64, primary_key=True)
-    series = models.CharField(max_length=64)
+    series = models.CharField(max_length=64, choices=Medal_TextChoices.Series)
     subseries = models.CharField(max_length=64, blank=True, default='')
-    kind = models.CharField(max_length=32, choices=[(item, item) for item in KINDS])
+    kind = models.CharField(max_length=32, choices=Medal_TextChoices.Kind)
     metric = models.CharField(max_length=32)
-    direction = models.CharField(max_length=8, choices=[(item, item) for item in DIRECTIONS])
-    level = models.CharField(max_length=32, blank=True, default='')
-    style = models.CharField(max_length=8, blank=True, default='')
+    direction = models.CharField(max_length=8, choices=Medal_TextChoices.Direction)
+    level = models.CharField(max_length=32, blank=True, default='', choices=Medal_TextChoices.Level)
+    style = models.CharField(max_length=8, blank=True, default='', choices=Medal_TextChoices.Style)
     thresholds = models.JSONField(default=list)
     bv_min = models.PositiveIntegerField(null=True, blank=True)
     scope = models.JSONField(default=dict)

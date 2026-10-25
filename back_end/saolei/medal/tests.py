@@ -470,7 +470,7 @@ class BasicMedalTests(MedalTestCase):
         self.assertNotEqual(to_units(1.5, BVS_SCALE), 2)
         evaluate_player(self.user.id)
         definition = MedalDefinition.objects.get(code='ability.bvs.b')
-        self.assertEqual(definition.series, '神速')
+        self.assertEqual(definition.series, 'speed')
         self.assertEqual(definition.thresholds[1], 15000)
         self.assertTrue(definition.active)
         self.assertFalse(definition.hidden)
@@ -482,7 +482,7 @@ class BasicMedalTests(MedalTestCase):
         ensure_basic_definitions()
         kept = MedalDefinition.objects.get(code='ability.bvs.b')
         self.assertEqual(kept.thresholds, [1])
-        self.assertEqual(kept.series, '神速')
+        self.assertEqual(kept.series, 'speed')
         self.assertTrue(any(index.name == 'video_player_state_level_idx' for index in VideoModel._meta.indexes))
 
     def test_time_upgrades_keeps_evidence_then_drops(self):
@@ -655,7 +655,7 @@ class BasicMedalTests(MedalTestCase):
         evaluate_player(self.user.id)
         self.assertIsNone(self.active(NOVICE_SAOLEI))
         self.assertFalse(MedalDefinition.objects.exclude(code=NOVICE_SAOLEI).filter(metric='platform').exists())
-        self.assertEqual(MedalDefinition.objects.get(code=NOVICE_SAOLEI).series, '旧迹新篇')
+        self.assertEqual(MedalDefinition.objects.get(code=NOVICE_SAOLEI).series, 'saolei')
         link = AccountLinkQueue.objects.get(platform=Platform.SAOLEI, userprofile=self.user)
         link.verified = True
         link.save(update_fields=['verified'])
