@@ -220,12 +220,15 @@ describe('PlayerName', () => {
         cy.intercept('GET', /\/api\/medal\/players\/\d+/, { statusCode: 500, body: {} }).as('medalDetail');
         mountPlayerName(player.id);
 
+        cy.get('@grantedMedalState.all').should('have.length', 0);
+        cy.contains('a', player.username).realHover();
         cy.wait('@grantedMedalState').its('request.url').should((url) => {
             const ids = new URL(url).searchParams.get('ids') ?? '';
             expect(ids.split(',')).to.include(String(player.id));
         });
-        cy.contains('a', player.username).realHover();
         cy.get('[id^=tippy-] img').should('be.visible').and('have.attr', 'src').and('include', 'breakthrough.webp');
+        cy.get('[id^=tippy-] img').realHover();
+        cy.get('[id^=tippy-]').should('contain', 'Expert Breakthrough · Sub30').and('contain', 'Expert best time reached 30s.');
         cy.get('@medalDetail.all').should('have.length', 0);
     });
 
@@ -238,8 +241,9 @@ describe('PlayerName', () => {
         }).as('beforeUploadState');
         cy.intercept('GET', '**/api/medal/refresh-status', { body: { user_id: playerId, pending: false } }).as('refreshStatus');
         mountPlayerName(playerId);
-        cy.wait('@beforeUploadState');
+        cy.get('@beforeUploadState.all').should('have.length', 0);
         cy.get('.player-name').realHover();
+        cy.wait('@beforeUploadState');
         cy.get('[id^=tippy-]').should('contain', '4');
         cy.then(() => {
             stage = 3000;

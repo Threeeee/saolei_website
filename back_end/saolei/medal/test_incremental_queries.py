@@ -69,6 +69,7 @@ class MedalIncrementalQueryTests(MedalTestCase):
 
     def test_backfill_uses_scoped_history_and_eleven_selects_including_publication(self):
         self.prepare_unchanged()
+        self.wear(self.user, ['ability.time.b'])
         older = self.make_video(timems=19000, upload_time=self.earlier - (self.later - self.earlier))
         delete_player_states([self.user.id])
         with CaptureQueriesContext(connection) as queries:
@@ -132,6 +133,7 @@ class MedalIncrementalQueryTests(MedalTestCase):
 
     def test_redis_outage_does_not_block_upgrade_or_database_display_fallback(self):
         self.prepare_unchanged()
+        self.wear(self.user, ['ability.time.b'])
         faster = self.make_video(timems=14000, upload_time=self.later)
         backend = caches['default']
         with self.assertLogs('medal.cache', level='WARNING'), patch.object(backend, 'get_many', side_effect=ConnectionError('offline')), patch.object(backend, 'set_many', side_effect=ConnectionError('offline')):
@@ -155,6 +157,7 @@ class MedalIncrementalQueryTests(MedalTestCase):
 
     def test_older_commit_callback_publishes_latest_committed_summary(self):
         self.prepare_unchanged()
+        self.wear(self.user, ['ability.time.b'])
         faster = self.make_video(timems=14000, upload_time=self.later)
         with self.captureOnCommitCallbacks(execute=False) as callbacks:
             refresh_player_medals(self.user.id, video_ids=[faster.id])
@@ -178,12 +181,13 @@ class MedalIncrementalQueryTests(MedalTestCase):
         self.assertEqual(self.active().stage, 20000)
         self.assertEqual(read_player_state(self.user.id), expected)
 
-    def test_pin_only_change_does_not_publish_name_display(self):
+    def test_pin_change_publishes_only_worn_grants(self):
         self.prepare_unchanged()
-        with patch('medal.services.write_player_states') as publish:
-            with self.captureOnCommitCallbacks(execute=True):
-                replace_pins(self.user, [self.active().id])
-        publish.assert_not_called()
+        grant = self.active()
+        with self.captureOnCommitCallbacks(execute=True):
+            replace_pins(self.user, [grant.id])
+        shown = [row['code'] for row in read_player_state(self.user.id)['grants']]
+        self.assertEqual(shown, [grant.definition_code])
 
     def test_scoped_tournament_and_manual_grants_survive_incremental_and_cold_display(self):
         video = self.prepare_unchanged()
@@ -195,6 +199,7 @@ class MedalIncrementalQueryTests(MedalTestCase):
         with self.captureOnCommitCallbacks(execute=True):
             set_player_override(self.user, self.user.id, 'ability.time.b', '', 'grant', 'manual', stage=10000)
         self.refresh(video)
+        self.wear(self.user, ['ability.time.b', 'event.place'])
         delete_player_states([self.user.id])
         rows = player_states([self.user.id])[0]['grants']
         self.assertEqual([(row['scope'], row['code']) for row in rows], sorted((row['scope'], row['code']) for row in rows))

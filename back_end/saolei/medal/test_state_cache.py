@@ -66,7 +66,7 @@ class MedalStateCacheTests(MedalTestCase):
         self.assertIsNone(read_player_state(self.user.id))
         with self.captureOnCommitCallbacks(execute=True):
             refresh_player_medals(self.user.id, video_ids=[video.id])
-        stored = read_player_state(self.user.id)
+        stored = read_player_state(self.user.id) or {'grants': []}
         self.assertNotIn('ability.time.b', [row['code'] for row in stored['grants']])
         self.assertIsNone(self.active())
         self.assertNotIn('shareholder.origin', [row['code'] for row in stored['grants']])
@@ -77,6 +77,7 @@ class MedalStateCacheTests(MedalTestCase):
     def test_unreachable_video_does_not_aggregate(self):
         self.make_video(timems=19000, upload_time=self.earlier)
         self.scan()
+        self.wear(self.user, ['ability.time.b'])
         grant = self.active()
         slow = self.make_video(timems=30000, upload_time=self.later)
         with patch('medal.services._evaluate_locked') as full_scan, patch('medal.services._aggregate_level') as aggregate, patch('medal.services.evaluate_min_video_id') as shareholder:
@@ -93,6 +94,7 @@ class MedalStateCacheTests(MedalTestCase):
     def test_better_video_updates_grant_without_aggregation(self):
         first = self.make_video(timems=19000, upload_time=self.earlier)
         self.scan()
+        self.wear(self.user, ['ability.time.b'])
         faster = self.make_video(timems=14000, upload_time=self.later)
         with patch('medal.services._evaluate_locked') as full_scan, patch('medal.services._aggregate_level') as aggregate:
             with self.captureOnCommitCallbacks(execute=True):
@@ -169,6 +171,7 @@ class MedalStateCacheTests(MedalTestCase):
         best = self.make_video(timems=16000, upload_time=self.later)
         caches['default'].clear()
         self.scan()
+        self.wear(self.user, ['ability.time.b'])
         self.assertEqual(self.active().video_id, kept.id)
         with self.captureOnCommitCallbacks(execute=True):
             VideoModel.objects.filter(pk=best.id).delete()
@@ -243,6 +246,7 @@ class MedalStateCacheTests(MedalTestCase):
     def test_commit_rewrites_state_from_database(self):
         self.make_video(timems=19000, upload_time=self.earlier)
         self.scan()
+        self.wear(self.user, ['ability.time.b'])
         write_player_state(self.user.id, {'grants': []})
         self.assertEqual(read_player_state(self.user.id), {'grants': []})
         _flush_player_state(self.user.id)
@@ -277,6 +281,7 @@ class MedalStateCacheTests(MedalTestCase):
         found.assert_not_called()
         grant = self.active(NOVICE_MODES)
         self.assertIsNotNone(grant)
+        self.wear(self.user, [NOVICE_MODES])
         self.assertNotIn('modes', _row(read_player_state(self.user.id), NOVICE_MODES))
 
     def test_missing_modes_set_falls_back_to_database_once(self):
@@ -296,6 +301,7 @@ class MedalStateCacheTests(MedalTestCase):
     def test_sub3_video_save_repairs_parked_task_and_updates_summary_and_history(self):
         first = self.make_video(timems=3994, upload_time=self.earlier)
         self.scan()
+        self.wear(self.user, ['ability.time.b'])
         enqueue_player_refresh(self.user.id)
         row = DBTaskResult.objects.get(task_path=task_refresh_player_medals.module_path)
         DBTaskResult.objects.filter(pk=row.pk).update(run_after=timezone.now().replace(year=9999))

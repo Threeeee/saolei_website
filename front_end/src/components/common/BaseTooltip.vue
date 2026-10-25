@@ -1,5 +1,5 @@
 <template>
-    <Tippy ref="tippy" :delay="[showDelay, hideDelay]" :duration="[showAnimation, hideAnimation]" :follow-cursor="followCursor" :trigger="trigger" :on-show="beforeShow" placement="auto-start">
+    <Tippy ref="tippy" :delay="[showDelay, hideDelay]" :duration="[showAnimation, hideAnimation]" :follow-cursor="followCursor" :interactive="interactive" :interactive-border="interactiveBorder" :trigger="trigger" :on-show="beforeShow" placement="auto-start">
         <slot />
         <template #content>
             <div class="card card-small">
@@ -22,6 +22,8 @@ defineProps({
     showAnimation: { type: Number, default: 300 },
     hideAnimation: { type: Number, default: 250 },
     followCursor: { type: Boolean, default: false },
+    interactive: { type: Boolean, default: false },
+    interactiveBorder: { type: Number, default: 2 },
     trigger: { type: String, default: 'mouseenter focus' },
     // 不用 onShow 作 prop 名，避免和 Vue 的 onXxx 侦听器约定撞车。
     beforeShow: { type: Function as PropType<() => false | undefined>, default: undefined },

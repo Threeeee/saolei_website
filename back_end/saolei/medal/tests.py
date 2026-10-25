@@ -13,8 +13,8 @@ from accountlink.models import AccountLinkQueue, Platform
 from config.text_choices import MS_TextChoices
 from userprofile.models import UserProfile
 from videomanager.models import ExpandVideoModel, STNB_COEFFICIENTS, VideoModel
-from .models import MedalContribution, MedalDefinition, MedalGrant, MedalScan, PlayerProgress
-from .services import active_definitions, ensure_basic_definitions, ensure_shareholder_definition, evaluate_min_video_id, evaluate_player, player_summary, write_stage
+from .models import MedalContribution, MedalDefinition, MedalGrant, MedalPins, MedalScan, PlayerProgress
+from .services import active_definitions, ensure_basic_definitions, ensure_shareholder_definition, evaluate_min_video_id, evaluate_player, player_summary, replace_pins, write_stage
 from .signals import enqueue_medal_refresh_on_video
 from .tasks import task_backfill_player_medals, task_refresh_player_medals
 from .utils import BVS_SCALE, DIRECTION_ASC, DIRECTION_DESC, KIND_MANUAL, KIND_ONCE, KIND_PB, MAX_PINS, NOVICE_LEVELS, NOVICE_LEVELS_NF, NOVICE_MODES, NOVICE_REALNAME, NOVICE_REVIEW, NOVICE_SAOLEI, open_modes, reached_asc_stage, REFRESH_COALESCE_DELAY, SHAREHOLDER_CODE, STANDARD_LEVELS, THRP_SCALE, to_units
@@ -39,6 +39,21 @@ class MedalTestCase(TestCase):
                 signal.receivers = receivers
                 signal.sender_receivers_cache.clear()
                 signal.sender_receivers_cache.update(cache)
+
+    def wear(self, user, codes=None):
+        stored = MedalPins.objects.filter(pk=user.pk).values_list('grant_ids', flat=True).first() or []
+        grants = MedalGrant.objects.filter(user=user, revoked_at__isnull=True, stage__gt=0)
+        if codes:
+            grants = grants.filter(definition_code__in=list(codes))
+        ids = [item for item in stored if isinstance(item, int)]
+        for grant_id in grants.order_by('scope_key', 'id').values_list('id', flat=True):
+            if grant_id not in ids:
+                ids.append(grant_id)
+        ids = ids[:MAX_PINS]
+        if ids == list(stored):
+            return
+        with self.captureOnCommitCallbacks(execute=True):
+            replace_pins(user, ids)
 
 
 class MedalShellFixture(MedalTestCase):

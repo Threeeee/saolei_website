@@ -334,21 +334,33 @@ def _set_from_extra(extra, key):
 
 
 def _display_state(data):
-    """展示快照只含已授予事实；计算进度、人工覆盖和证据留在数据库。"""
-    grants = [
-        {
+    """名字悬停只按佩戴顺序返回已授予短记录；没佩戴则为空。"""
+    by_id = {}
+    for row in data.get('grants') or []:
+        grant_id = row.get('id')
+        if not isinstance(grant_id, int) or not row.get('stage'):
+            continue
+        by_id[grant_id] = {
             'code': row['code'], 'stage': row['stage'], 'timestamp': _unix_seconds(parse_datetime(row['granted_at'])),
             'scope': row['scope_key'], 'tournament': row['tournament_id'], 'rank': row['rank'],
         }
-        for row in sorted(data['grants'], key=lambda row: (row['scope_key'], row['code'])) if row['stage'] > 0
-    ]
+    grants = []
+    seen = set()
+    for pin_id in data.get('pin_ids') or []:
+        if pin_id in seen or len(grants) >= MAX_PINS:
+            continue
+        row = by_id.get(pin_id)
+        if row is None:
+            continue
+        seen.add(pin_id)
+        grants.append(row)
     return {'grants': grants}
 
 
 @transaction.atomic
 def _flush_player_states(user_ids):
     """缓存写入共用玩家锁并读取最新摘要，旧回调和冷缓存回填不能覆盖新结果。"""
-    users = list(UserProfile.objects.select_for_update().select_related('medal_summary', 'medal_scan').filter(pk__in=user_ids).order_by('pk'))
+    users = list(UserProfile.objects.select_for_update().select_related('medal_summary', 'medal_scan', 'medal_pins').filter(pk__in=user_ids).order_by('pk'))
     scanned = [user for user in users if getattr(user, 'medal_scan', None) is not None]
     missing = [user.pk for user in scanned if getattr(user, 'medal_summary', None) is None]
     grants = {}
@@ -359,7 +371,12 @@ def _flush_player_states(user_ids):
     stored = {}
     for user in scanned:
         summary = getattr(user, 'medal_summary', None)
-        data = summary.data if summary is not None else {'grants': grants.get(user.pk, [])}
+        if summary is not None:
+            data = summary.data
+        else:
+            pins = getattr(user, 'medal_pins', None)
+            pin_ids = pins.grant_ids if pins is not None and isinstance(pins.grant_ids, list) else []
+            data = {'grants': grants.get(user.pk, []), 'pin_ids': pin_ids}
         stored[user.pk] = _display_state(data)
     write_player_states(stored)
     return stored

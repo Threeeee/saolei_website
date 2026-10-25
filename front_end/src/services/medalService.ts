@@ -243,10 +243,11 @@ function medalStateBatchSize() {
 
 function scheduleMedalStateBatch() {
     if (medalStateTimer) return;
+    // 同一轮里的多次读取合并成一次请求，不再等用户资料的批量延迟。
     medalStateTimer = setTimeout(() => {
         medalStateTimer = null;
         void processMedalStateBatch();
-    }, serviceConfig.value.userInfoBatchDelay);
+    }, 0);
 }
 
 function grantedStateRecords(grants: MedalStateRecord[] | undefined) {
@@ -281,7 +282,11 @@ async function processMedalStateBatch() {
     }
 }
 
-// 名字出现时收集 id，延迟后打一次状态接口，结果留在内存。不读玩家主页的详情接口。
+export function cachedPlayerMedalState(userId: number): MedalStateRecord[] | undefined {
+    return medalStateCache.get(userId);
+}
+
+// 提示即将显示时读取状态，同一轮调用合并成一次请求，结果留在内存。不读玩家主页的详情接口。
 export function fetchPlayerMedalState(userId: number): Promise<MedalStateRecord[]> {
     if (userId === 0) return Promise.resolve([]);
     const cached = medalStateCache.get(userId);
@@ -343,6 +348,74 @@ export function medalLevel(code: string): 'b' | 'i' | 'e' | '' {
     const matched = (/\.([bie])$/).exec(code);
     if (matched?.[1] === 'b' || matched?.[1] === 'i' || matched?.[1] === 'e') return matched[1];
     return '';
+}
+
+const medalMeaningKey = {
+    破境: 'time',
+    盲扫破境: 'timeNf',
+    神速: 'speed',
+    盲扫神速: 'speedNf',
+    通明: 'mastery',
+    盲扫通明: 'masteryNf',
+    盲扫·精工: 'precisionNf',
+    标旗·精工: 'precisionFl',
+    三阶盲扫·精工: 'threeNf',
+    三阶标旗·精工: 'threeFl',
+    实名在册: 'registered',
+    录像过审: 'reviewed',
+    扫雷新秀: 'levels',
+    盲扫新秀: 'levelsNf',
+    走马观花: 'modes',
+    旧迹新篇: 'saolei',
+    原始股东: 'shareholder',
+} as const;
+
+const medalFlavorKey = {
+    实名在册: 'registered',
+    录像过审: 'reviewed',
+    扫雷新秀: 'levels',
+    盲扫新秀: 'levelsNf',
+    走马观花: 'modes',
+    旧迹新篇: 'saolei',
+    原始股东: 'shareholder',
+} as const;
+
+function medalCopy(locale: string) {
+    return locale.startsWith('zh') ? zhCn.medal : en.medal;
+}
+
+function fillMedalText(template: string, values: Record<string, string>) {
+    return template.replace(/\{(\w+)\}/g, (_, key: string) => values[key] ?? '');
+}
+
+function medalPlainStage(series: string, stage: number | null) {
+    if (stage == null) return '';
+    if (series === '破境' || series === '盲扫破境') return String(stage / 1000);
+    return medalStageLabel(series, stage) || String(stage);
+}
+
+export function medalCaption(series: string, code: string, stage: number | null, locale: string): { title: string; meaning: string; flavor: string } {
+    const copy = medalCopy(locale);
+    const chinese = locale.startsWith('zh');
+    const seriesName = medalSeriesLabel(series, locale);
+    const stageName = medalStageLabel(series, stage);
+    const levelCode = medalLevel(code);
+    const levelNames = chinese ? zhCn.common.level : en.common.level;
+    const level = levelCode ? levelNames[levelCode] : '';
+    let title = seriesName;
+    if (stageName) {
+        if (series.startsWith('三阶') || !level) title = chinese ? `${seriesName}·${stageName}` : `${seriesName} · ${stageName}`;
+        else if (!chinese) title = `${level} ${seriesName} · ${stageName}`;
+        else title = `${level}${seriesName}·${stageName}`;
+    }
+    const values = { level, value: medalPlainStage(series, stage) };
+    const meaningKey = medalMeaningKey[series as keyof typeof medalMeaningKey];
+    const flavorKey = medalFlavorKey[series as keyof typeof medalFlavorKey];
+    return {
+        title,
+        meaning: meaningKey ? fillMedalText(copy.meaning[meaningKey], values) : '',
+        flavor: flavorKey ? copy.flavor[flavorKey] : '',
+    };
 }
 
 const medalCodeSeries = [

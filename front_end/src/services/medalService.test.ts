@@ -229,14 +229,14 @@ async function loadMedalState() {
 
 function waitForMedalStateBatch() {
     return new Promise((resolve) => {
-        setTimeout(resolve, serviceConfig.value.userInfoBatchDelay + 30);
+        setTimeout(resolve, 0);
     });
 }
 
 describe('player medal state for name hover', () => {
     beforeEach(() => {
         axiosGet.mockReset();
-        serviceConfig.value.userInfoBatchDelay = 1;
+        serviceConfig.value.userInfoBatchDelay = 500;
         serviceConfig.value.userInfoBatchSize = 100;
     });
 
@@ -262,7 +262,9 @@ describe('player medal state for name hover', () => {
         const second = fetchPlayerMedalState(2);
         const missing = fetchPlayerMedalState(3);
         const skipped = fetchPlayerMedalState(0);
+        expect(axiosGet).not.toHaveBeenCalled();
         await waitForMedalStateBatch();
+        expect(axiosGet).toHaveBeenCalledTimes(1);
 
         await expect(skipped).resolves.toEqual([]);
         await expect(first).resolves.toEqual([expert]);
@@ -326,7 +328,7 @@ describe('bounded synchronization after uploads', () => {
         const api = await import('./medalService');
         axiosGet.mockResolvedValueOnce({ data: [{ user_id: 1, grants: [] }] });
         const cached = api.fetchPlayerMedalState(1);
-        await vi.advanceTimersByTimeAsync(1);
+        await vi.advanceTimersByTimeAsync(0);
         await cached;
         axiosGet.mockResolvedValueOnce({ data: summary(false, 1) });
         const page = vi.fn<() => void>();
@@ -350,7 +352,7 @@ describe('bounded synchronization after uploads', () => {
         expect(api.medalStateVersions[1]).toBe(1);
         axiosGet.mockResolvedValue({ data: [{ user_id: 1, grants: [] }] });
         const updated = api.fetchPlayerMedalState(1);
-        await vi.advanceTimersByTimeAsync(1);
+        await vi.advanceTimersByTimeAsync(0);
         await updated;
         await vi.advanceTimersByTimeAsync(300_000);
         expect(axiosGet).toHaveBeenCalledTimes(4);
@@ -411,15 +413,30 @@ describe('bounded synchronization after uploads', () => {
             mockResolvedValueOnce({ data: { user_id: 1, pending: false } }).
             mockResolvedValueOnce({ data: [{ user_id: 1, grants: [] }] });
         const old = fetchPlayerMedalState(1);
-        await vi.advanceTimersByTimeAsync(1);
+        await vi.advanceTimersByTimeAsync(0);
         syncMedalsAfterUpload();
         await vi.advanceTimersByTimeAsync(1000);
         const current = fetchPlayerMedalState(1);
         oldResponse.resolve({ data: [{ user_id: 1, grants: [{ code: 'old', stage: 1, timestamp: null, scope: '', tournament: null, rank: null }] }] });
         await old;
-        await vi.advanceTimersByTimeAsync(1);
+        await vi.advanceTimersByTimeAsync(0);
         expect(await current).toEqual([]);
         expect(await fetchPlayerMedalState(1)).toEqual([]);
         expect(axiosGet).toHaveBeenCalledTimes(3);
+    });
+});
+
+describe('medalCaption', () => {
+    it('names a worn ability medal from its code and stage', async () => {
+        const { medalCaption } = await import('./medalService');
+        expect(medalCaption('破境', 'ability.time.e', 30000, 'en')).toEqual({
+            title: 'Expert Breakthrough · Sub30',
+            meaning: 'Expert best time reached 30s.',
+            flavor: '',
+        });
+        expect(medalCaption('原始股东', 'shareholder.origin', 1000, 'zh-cn')).toMatchObject({
+            title: '原始股东·1000',
+            flavor: '老资历',
+        });
     });
 });

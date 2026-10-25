@@ -70,6 +70,7 @@ class MedalVideoHistoryTests(tests.MedalTestCase):
         item = next(item for group in summary['series'] for item in group['items'] if item['code'] == code)
         self.assertEqual(item['granted_at'], grant.granted_at.isoformat())
         self.assertEqual(item['video_id'], grant.video_id)
+        self.wear(self.user, [code])
         cached = next(item for item in player_states([self.user.id])[0]['grants'] if item['code'] == code)
         self.assertEqual(cached['timestamp'], int(grant.granted_at.timestamp()))
         return grant
