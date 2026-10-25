@@ -43,10 +43,10 @@ function summary(scanPending: boolean, series = '实名在册'): PlayerMedals {
     };
 }
 
-function deferred() {
-    let resolve!: (value: { data: PlayerMedals }) => void;
+function deferred<T = PlayerMedals>() {
+    let resolve!: (value: { data: T }) => void;
     let reject!: (reason: Error) => void;
-    const promise = new Promise<{ data: PlayerMedals }>((resolvePromise, rejectPromise) => {
+    const promise = new Promise<{ data: T }>((resolvePromise, rejectPromise) => {
         resolve = resolvePromise;
         reject = rejectPromise;
     });
@@ -77,10 +77,12 @@ describe('player medal subscriptions', () => {
         cy.clock();
         const playerId = 8901 + Cypress.currentRetry;
         store.player.id = playerId;
+        const waiting = deferred<{ user_id: number; pending: boolean }>();
+        const completed = deferred<{ user_id: number; pending: boolean }>();
         const get = cy.stub($axios, 'get');
         get.onFirstCall().resolves({ data: summary(false) });
-        get.onSecondCall().resolves({ data: { user_id: playerId, pending: true } });
-        get.onThirdCall().resolves({ data: { user_id: playerId, pending: false } });
+        get.onSecondCall().returns(waiting.promise);
+        get.onThirdCall().returns(completed.promise);
         get.onCall(3).resolves({ data: summary(false, '录像过审') });
         cy.stub($axios, 'post').resolves({ data: { type: 'success', data: { id: 123, state: 'c' } } });
         cy.mount(defineComponent({
@@ -90,8 +92,19 @@ describe('player medal subscriptions', () => {
         cy.get('.pins .series').should('have.text', 'Registered');
         cy.then(() => uploadVideoFile(new File(['video'], 'test.avf')));
         cy.tick(1000);
+        cy.wrap(get).should('have.callCount', 2);
+        cy.then(() => {
+            waiting.resolve({ data: { user_id: playerId, pending: true } });
+            // Let the async status handler schedule its next timer before ticking again.
+            return waiting.promise;
+        });
         cy.get('.pins .series').should('have.text', 'Registered');
         cy.tick(2000);
+        cy.wrap(get).should('have.callCount', 3);
+        cy.then(() => {
+            completed.resolve({ data: { user_id: playerId, pending: false } });
+            return completed.promise;
+        });
         cy.get('.pins .series').should('have.text', 'Reviewed');
         cy.get('.medal-page').should('contain', 'Reviewed');
         cy.tick(300_000);
