@@ -13,7 +13,7 @@ import { store } from '@/store';
 
 function summary(scanPending: boolean, series = '实名在册'): PlayerMedals {
     const item: MedalItem = {
-        code: 'novice.registered',
+        code: series === '录像过审' ? 'novice.review' : 'novice.realname',
         series,
         subseries: '',
         kind: 'once',
@@ -106,7 +106,9 @@ describe('player medal subscriptions', () => {
             return completed.promise;
         });
         cy.get('.pins .series').should('have.text', 'Reviewed');
-        cy.get('.medal-page').should('contain', 'Reviewed');
+        // Novice names are shown in tooltips, outside the medal page container.
+        cy.get('.medal-page .medal-face').realHover();
+        cy.get('[data-tippy-root] .tip-title').should('have.text', 'Reviewed');
         cy.tick(300_000);
         cy.then(() => expect(get.callCount).to.equal(4));
     });
