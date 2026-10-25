@@ -17,7 +17,7 @@ from .models import MedalContribution, MedalDefinition, MedalGrant, MedalScan, P
 from .services import _aggregate_level, _best_videos_for_level, active_definitions, ensure_basic_definitions, ensure_shareholder_definition, evaluate_min_video_id, evaluate_player, player_summary, write_stage
 from .signals import enqueue_medal_refresh_on_video
 from .tasks import task_backfill_player_medals, task_refresh_player_medals
-from .utils import BVS_SCALE, DIRECTION_ASC, DIRECTION_DESC, KIND_MANUAL, KIND_ONCE, KIND_PB, MAX_PINS, NOVICE_LEVELS, NOVICE_LEVELS_NF, NOVICE_MODES, NOVICE_REALNAME, NOVICE_REVIEW, NOVICE_SAOLEI, open_modes, reached_asc_stage, SHAREHOLDER_CODE, STANDARD_LEVELS, THRP_SCALE, to_units
+from .utils import BVS_SCALE, DIRECTION_ASC, DIRECTION_DESC, KIND_MANUAL, KIND_ONCE, KIND_PB, MAX_PINS, NOVICE_LEVELS, NOVICE_LEVELS_NF, NOVICE_MODES, NOVICE_REALNAME, NOVICE_REVIEW, NOVICE_SAOLEI, open_modes, reached_asc_stage, REFRESH_COALESCE_DELAY, SHAREHOLDER_CODE, STANDARD_LEVELS, THRP_SCALE, to_units
 
 
 @override_settings(
@@ -202,12 +202,19 @@ class MedalShellTests(MedalShellFixture):
 
     def test_refresh_coalesces_ready_tasks(self):
         self.client.force_login(self.user)
-        self.assertEqual(self.client.post('/api/medal/refresh').status_code, 200)
+        before = timezone.now()
         self.assertEqual(self.client.post('/api/medal/refresh').status_code, 200)
         rows = DBTaskResult.objects.filter(task_path=task_refresh_player_medals.module_path, status=TaskResultStatus.READY)
         self.assertEqual(rows.count(), 1)
-        self.assertEqual(rows.get().priority, 10)
-        self.assertEqual(rows.get().args_kwargs['args'], [self.user.id])
+        row = rows.get()
+        self.assertEqual(row.priority, 1)
+        self.assertEqual(row.args_kwargs['args'], [self.user.id])
+        self.assertGreaterEqual(row.run_after, before + REFRESH_COALESCE_DELAY)
+        self.assertLessEqual(row.run_after, timezone.now() + REFRESH_COALESCE_DELAY)
+        scheduled = row.run_after
+        self.assertEqual(self.client.post('/api/medal/refresh').status_code, 200)
+        row.refresh_from_db()
+        self.assertEqual(row.run_after, scheduled)
         self.assertEqual(self.client.post('/api/medal/refresh').status_code, 200)
         self.client.logout()
         self.assertEqual(self.client.post('/api/medal/refresh').status_code, 403)
@@ -343,7 +350,6 @@ class ShareholderTests(MedalShellFixture):
             enqueue_medal_refresh_on_video(sender=VideoModel, instance=instance)
         rows = DBTaskResult.objects.filter(task_path=task_refresh_player_medals.module_path, status=TaskResultStatus.READY)
         self.assertCountEqual([row.args_kwargs['args'] for row in rows], [[self.user.id], [other.id]])
-        self.assertTrue(all(row.priority == 10 for row in rows))
 
 
 @override_settings(
@@ -681,9 +687,7 @@ class BasicMedalTests(MedalTestCase):
         with self.captureOnCommitCallbacks(execute=True):
             self.user.realname = '信号实名'
             self.user.save(update_fields=['_realname', 'date_updated'])
-        rows = DBTaskResult.objects.filter(task_path=path, status=TaskResultStatus.READY)
-        self.assertEqual(rows.count(), 1)
-        self.assertEqual(rows.get().priority, 10)
+        self.assertEqual(DBTaskResult.objects.filter(task_path=path, status=TaskResultStatus.READY).count(), 1)
         DBTaskResult.objects.filter(task_path=path).delete()
         with self.captureOnCommitCallbacks(execute=True):
             link = AccountLinkQueue.objects.create(platform=Platform.SAOLEI, identifier='saolei-signal', userprofile=self.user, verified=True)

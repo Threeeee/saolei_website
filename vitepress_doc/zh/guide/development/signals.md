@@ -131,6 +131,8 @@ GSC 历史补录沿用默认 TournamentUser 创建和 best 保存信号，允许
 
 导入录像在 `create_from_parser` 中提前设置来源 `upload_time` 供 `pre_save` check-in 使用，创建后再次显式保存以覆盖 `auto_now_add`；既有文件仅当本次时间更早时保存。两种保存仍走状态队列和排行信号，不用 `QuerySet.update` 绕过副作用。
 
+仅修改 `upload_time` 也会沿用录像保存信号入队勋章刷新。工人在发布摘要前核验受影响的当前及历史证据，即使成绩和档位未变，也会校正授予日期、证据和阶段日志；上传时间改早或改晚均适用。新手集合与三阶勋章保留完整的分项录像 id，任一分项改时都可重新计算首次完成时间。人工锁定的授予不被覆盖。
+
 | 图中名称 | 函数 |
 | --- | --- |
 | 删除小游戏排行成绩 | `minigame.signals.delete_cached_score` |
@@ -166,4 +168,4 @@ GSC 历史补录沿用默认 TournamentUser 创建和 best 保存信号，允许
 
 `medal.signals.invalidate_summary_on_evidence_delete`监听`VideoModel`及`TournamentParticipant`的`pre_delete`。在授予证据外键被`SET_NULL`前查询受影响玩家，按主键顺序取得玩家锁，并在同一删除事务内删除对应`PlayerMedalSummary`。事务提交后再删 `medal:state:{user_id}`；删除回滚时摘要和状态键都还在。下次摘要读取补齐已置空的证据链接。自然进度和授予资格继续由既有后台评估处理；状态键被删掉后，下一次刷新按未扫描走全量 `evaluate_player`。
 
-标识绑定、解绑和比赛录像公开保留 `QuerySet.update()`，它们不会触发 `post_save`。业务入口通过 `videomanager.events.videos_bulk_changed` 发送受影响的 `player_ids`，由勋章接收器去重，并为每名玩家注册独立的 `transaction.on_commit(..., robust=True)` 回调；事务回滚不入队，单名玩家入队失败会记录错误日志，不阻断其他玩家或缓存更新。比赛批量公开的最新队列及各排行也分别使用独立的 robust 提交回调，缓存与勋章入队互不依赖成功；这些回调暂不自动重试。入队函数在同一事务锁定玩家行，并在数据库按任务路径、`READY` 状态和玩家参数判断是否已有任务，不读取全队列 JSON。`on_commit()` 回调仍同步执行，不能据此认定请求没有入队开销。
+标识绑定、解绑和比赛录像公开保留 `QuerySet.update()`，它们不会触发 `post_save`。业务入口通过 `videomanager.events.videos_bulk_changed` 发送受影响的 `player_ids`，由勋章接收器去重，并为每名玩家注册独立的 `transaction.on_commit(..., robust=True)` 回调；事务回滚不入队，单名玩家入队失败会记录错误日志，不阻断其他玩家或缓存更新。比赛批量公开的最新队列及各排行也分别使用独立的 robust 提交回调，缓存与勋章入队互不依赖成功；这些回调暂不自动重试。入队函数在同一事务锁定玩家行，并在数据库按任务路径、`READY` 状态和玩家参数判断是否已有任务，不读取全队列 JSON。新插入的 `task_refresh_player_medals` 优先级为 1，3 秒后才可执行；已有 `READY` 任务时只合并参数，不推迟开始时间。补发任务优先级仍是 0，创建后即可执行。`on_commit()` 回调仍同步执行，不能据此认定请求没有入队开销。

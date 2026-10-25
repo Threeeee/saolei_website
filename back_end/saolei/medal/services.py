@@ -1,6 +1,7 @@
 from django.db import transaction
 from django.db.models import F, Max, Min, Q
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 
 from accountlink.models import AccountLinkQueue, Platform
 from config.text_choices import MS_TextChoices
@@ -8,7 +9,7 @@ from userprofile.models import UserProfile
 from videomanager.models import STNB_COEFFICIENTS, VideoModel
 from .cache import invalidate_catalog, read_catalog, read_player_state, read_player_states, write_catalog, write_player_state
 from .models import MedalDefinition, MedalGrant, MedalOverride, MedalOverrideLog, MedalPins, MedalScan, PlayerMedalSummary, PlayerProgress
-from .utils import basic_definitions, BVS_SCALE, DIRECTION_DESC, KIND_COMPOSITE, KIND_EVENT_PLACE, KIND_GSC_PLACE, KIND_GSC_STAT, KIND_MANUAL, KIND_MIN_VIDEO_ID, KIND_ONCE, KIND_PB, MAX_PINS, next_threshold, NOVICE_LEVELS, NOVICE_LEVELS_NF, NOVICE_MODES, NOVICE_REALNAME, NOVICE_REVIEW, NOVICE_SAOLEI, open_modes, reached_asc_stage, reached_desc_stage, scale_units, SHAREHOLDER_CODE, SHAREHOLDER_THRESHOLDS, STANDARD_LEVELS, STYLE_FL, STYLE_NF, threshold_index, THRP_SCALE
+from .utils import basic_definitions, BVS_SCALE, DIRECTION_DESC, KIND_COMPOSITE, KIND_EVENT_PLACE, KIND_GSC_PLACE, KIND_GSC_STAT, KIND_MANUAL, KIND_MIN_VIDEO_ID, KIND_ONCE, KIND_PB, MAX_PINS, next_threshold, NOVICE_LEVELS, NOVICE_LEVELS_NF, NOVICE_MODES, NOVICE_REALNAME, NOVICE_REVIEW, NOVICE_SAOLEI, open_modes, reached_asc_stage, reached_desc_stage, scale_units, SHAREHOLDER_CODE, SHAREHOLDER_THRESHOLDS, STANDARD_LEVELS, STYLE_FL, STYLE_NF, threshold_index, THRP_SCALE, VIDEO_ONCE_CODES
 
 
 class MedalError(Exception):
@@ -130,6 +131,7 @@ class _EvaluationState:
         self.grants = {row.definition_code: row for row in self.all_grants.values() if not row.scope_key}
         self.overrides = {(row.definition_code, row.scope_key): row for row in MedalOverride.objects.filter(user=user)}
         self.changed = {}
+        self.history_dirty = set()
 
     def flush(self):
         new = [row for row in self.changed.values() if row.pk is None]
@@ -243,12 +245,15 @@ def _write_stage(user, definition, scope_key, stage, current_value, granted_at, 
         )
         if state is not None:
             state.all_grants[(definition.code, scope_key)] = grant
+            state.history_dirty.add(definition.code)
             if not scope_key:
                 state.grants[definition.code] = grant
         return grant
 
     old_rank = threshold_index(definition.thresholds, grant.stage)
     if grant.revoked_at is not None or new_rank != old_rank or not keep_evidence:
+        if state is not None:
+            state.history_dirty.add(definition.code)
         same_evidence = grant.revoked_at is None and new_rank == old_rank and keep_evidence
         return _apply_grant_fields(
             grant, stage, video, participant, evidence, logged_at,
@@ -584,6 +589,7 @@ def _evaluate_locked(user):
     evaluate_once(user, state)
     evaluate_pb(user, state)
     evaluate_composite(user, state)
+    _refresh_video_history(user, state)
     state.flush()
     user.medal_scan, _created = MedalScan.objects.get_or_create(user=user, defaults={'scanned_at': timezone.now()})
     _publish_summary(user, state)
@@ -1076,7 +1082,7 @@ def evaluate_once(user, state=None):
 
 
 def evaluate_composite(user, state=None):
-    """三阶只读三个难度的进度，不扫录像，也不撤掉单级授予。"""
+    """三阶的档位只读三个难度的进度；最早达标证据由发布前的历史校正统一查找。"""
     definitions = list(MedalDefinition.objects.filter(active=True, kind=KIND_COMPOSITE, metric='thrp'))
     if not definitions:
         return
@@ -1112,6 +1118,142 @@ def evaluate_composite(user, state=None):
             user, definition, stage=stage, current_value=stage,
             granted_at=max(uploaded) if uploaded else None, evidence={'video_ids': video_ids}, keep_evidence=False, state=state,
         )
+
+
+def _history_dep_stage(definition, stage):
+    # 复合档要求依赖已经进入这一档；不能把落在两个依赖阈值之间的原始成绩当成入档。
+    return next((value for value in definition.thresholds if value >= stage), None)
+
+
+def _history_candidate(user, definition, stage, video, definitions):
+    if video.player_id != user.id:
+        return False
+    if definition.kind == KIND_MIN_VIDEO_ID:
+        return video.id < stage
+    if definition.kind == KIND_PB:
+        return _video_qualifies(video, definition, user.id) and _meets_stage(definition, _raw_value(video, definition), stage)
+    if definition.kind == KIND_ONCE:
+        if video.state != MS_TextChoices.State.OFFICIAL:
+            return False
+        if definition.code == NOVICE_REVIEW:
+            return True
+        if definition.code == NOVICE_MODES:
+            return video.mode in _mode_list(definition)
+        return video.level in STANDARD_LEVELS and (definition.code != NOVICE_LEVELS_NF or video.right_ce == 0)
+    for code in definition.depends_on or []:
+        dependency = definitions.get(code)
+        target = None if dependency is None else _history_dep_stage(dependency, stage)
+        if target is not None and _history_candidate(user, dependency, target, video, definitions):
+            return True
+    return False
+
+
+def _history_needs_refresh(user, definition, grant, definitions, video_ids, videos):
+    """普通后续录像不回扫历史；证据被修改或出现更早的达标候选时才重查。"""
+    watched = set(video_ids)
+    evidence = grant.evidence if isinstance(grant.evidence, dict) else {}
+    proof_ids = {grant.video_id, *evidence.get('video_ids', [])}
+    multiple = definition.kind == KIND_COMPOSITE or definition.code in (NOVICE_LEVELS, NOVICE_LEVELS_NF, NOVICE_MODES)
+    for entry in grant.stage_log or []:
+        proof_ids.add(entry.get('evidence_id'))
+        proof_ids.update(entry.get('video_ids', []))
+        # 旧集合证据只有最后一条录像，先补齐整个证据集，之后才能捕捉任一分项改时。
+        if multiple and not entry.get('video_ids'):
+            return True
+        at = parse_datetime(entry.get('at', ''))
+        if at is None or timezone.is_naive(at):
+            return True
+        stage = entry.get('stage')
+        if threshold_index(definition.thresholds, stage) < 0:
+            return True
+        if any(video.upload_time <= at and _history_candidate(user, definition, stage, video, definitions) for video in videos):
+            return True
+    return not grant.stage_log or bool(watched & proof_ids)
+
+
+def _history_videos(user, definition, stage, definitions, memo):
+    key = (definition.code, stage)
+    if key in memo:
+        return memo[key]
+    if definition.kind == KIND_PB:
+        videos = [_earliest_for_stage(user, definition, stage)]
+    elif definition.kind == KIND_MIN_VIDEO_ID:
+        videos = [VideoModel.objects.filter(player=user, id__lt=stage).order_by('upload_time', 'id').first()]
+    elif definition.kind == KIND_COMPOSITE:
+        videos = []
+        for code in definition.depends_on or []:
+            dependency = definitions.get(code)
+            target = None if dependency is None else _history_dep_stage(dependency, stage)
+            proof = None if target is None else _history_videos(user, dependency, target, definitions, memo)
+            videos.append(None if not proof else proof[0])
+    elif definition.code == NOVICE_REVIEW:
+        videos = [_earliest_official(user)]
+    elif definition.code == NOVICE_MODES:
+        videos = [_earliest_official(user, mode=mode) for mode in _mode_list(definition)]
+    else:
+        filters = {'right_ce': 0} if definition.code == NOVICE_LEVELS_NF else {}
+        videos = [_earliest_official(user, level=level, **filters) for level in STANDARD_LEVELS]
+    memo[key] = videos if videos and all(video is not None for video in videos) else None
+    return memo[key]
+
+
+def _sync_video_history(user, definition, grant, definitions, memo):
+    """重建已记录档位的达成事实；同档只留一个节点，不补造未记录过的中间档。"""
+    stages = {entry.get('stage') for entry in grant.stage_log or []} | {grant.stage}
+    entries = []
+    current = None
+    for stage in definition.thresholds:
+        if stage not in stages:
+            continue
+        videos = _history_videos(user, definition, stage, definitions, memo)
+        if not videos:
+            continue
+        completing = _completing_video(videos)
+        entry = {'stage': stage, 'at': completing.upload_time.isoformat(), 'evidence_id': completing.id}
+        if definition.kind == KIND_COMPOSITE or definition.code in (NOVICE_LEVELS, NOVICE_LEVELS_NF, NOVICE_MODES):
+            entry['video_ids'] = [video.id for video in videos]
+        entries.append((completing.upload_time, threshold_index(definition.thresholds, stage), entry))
+        if stage == grant.stage:
+            current = (completing, entry)
+    if current is None:
+        return
+    entries.sort(key=lambda row: (row[0], row[1]))
+    completing, entry = current
+    evidence = {'video_ids': entry['video_ids']} if definition.kind == KIND_COMPOSITE else {'video_id': completing.id}
+    if 'video_ids' in entry:
+        evidence['video_ids'] = entry['video_ids']
+    values = {
+        'granted_at': entries[0][0], 'stage_log': [row[2] for row in entries], 'evidence': evidence,
+        'video_id': None if definition.kind == KIND_COMPOSITE else completing.id,
+    }
+    fields = []
+    for field, value in values.items():
+        if getattr(grant, field) != value:
+            setattr(grant, field, value)
+            fields.append(field)
+    if fields:
+        grant.save(update_fields=fields)
+
+
+def _refresh_video_history(user, state, video_ids=None, videos=None):
+    """在发布摘要之前修正录像派生的时间、证据和日志；人工锁定始终优先。"""
+    definitions = {item.code: item for item in MedalDefinition.objects.filter(active=True)}
+    memo = {}
+    for code, grant in state.grants.items():
+        definition = definitions.get(code)
+        if definition is None or grant.revoked_at is not None or (code, '') in state.overrides:
+            continue
+        supported = (
+            definition.kind == KIND_MIN_VIDEO_ID
+            or (definition.kind == KIND_PB and definition.metric in ('timems', 'bvs', 'stnb', 'thrp') and definition.level in STANDARD_LEVELS)
+            or (definition.kind == KIND_COMPOSITE and definition.metric == 'thrp')
+            or (definition.kind == KIND_ONCE and code in VIDEO_ONCE_CODES)
+        )
+        if not supported:
+            continue
+        if video_ids is not None and code not in state.history_dirty and not _history_needs_refresh(user, definition, grant, definitions, video_ids, videos or []):
+            continue
+        _sync_video_history(user, definition, grant, definitions, memo)
 
 
 def _state_index(payload):
@@ -1157,7 +1299,7 @@ def _record_value(definition, video):
 
 
 def _apply_recorded_video(user, definition, video, units, new_stage, old_stage, state):
-    """严格更好或第一次过档时，这条录像就是新最佳。升档的证据也是它，不再回扫历史录像。"""
+    """严格更好或第一次过档时更新最佳；升档证据在发布前统一校正为最早达标录像。"""
     # 时间档的阈值数字越小越高，要用档位序号而不是阈值本身比高低。
     old_rank = threshold_index(definition.thresholds, old_stage)
     new_rank = threshold_index(definition.thresholds, new_stage)
@@ -1368,6 +1510,7 @@ def _refresh_incremental(user, payload, video_ids, degrade_levels, invalidate_on
         evaluate_pb(user, state, levels=forced)
     _refresh_novice(user, state, cached, found, invalidate_once)
     evaluate_composite(user, state)
+    _refresh_video_history(user, state, video_ids=video_ids, videos=found)
     state.flush()
     _publish_summary(user, state)
 

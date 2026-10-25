@@ -15,10 +15,10 @@ from userprofile.models import UserProfile
 from videomanager.models import ExpandVideoModel, VideoModel
 from .cache import read_player_state, write_player_state
 from .models import MedalGrant, MedalScan
-from .services import _aggregate_level, refresh_player_medals, set_player_override
-from .tasks import task_backfill_player_medals, task_refresh_player_medals
-from .test_queue_triggers import MedalQueueTriggerTests
+from .services import _aggregate_level, _flush_player_state, refresh_player_medals, set_player_override
+from .tasks import enqueue_player_refresh, task_backfill_player_medals, task_refresh_player_medals
 from .tests import MedalTestCase
+from .utils import NOVICE_MODES, open_modes, REFRESH_COALESCE_DELAY
 
 
 def _row(payload, code):
@@ -243,7 +243,6 @@ class MedalStateCacheTests(MedalTestCase):
         self.assertTrue(_row(read_player_state(self.user.id), 'ability.time.b')['locked'])
 
     def test_commit_rewrites_state_from_database(self):
-        from .services import _flush_player_state
         self.make_video(timems=19000, upload_time=self.earlier)
         self.scan()
         write_player_state(self.user.id, {'grants': []})
@@ -254,7 +253,6 @@ class MedalStateCacheTests(MedalTestCase):
         self.assertEqual(_row(stored, 'ability.time.b')['value'], 19000)
 
     def test_ungranted_modes_merge_without_requerying_official_videos(self):
-        from .utils import NOVICE_MODES, open_modes
         self.make_video(mode='00', upload_time=self.earlier)
         self.scan()
         self.assertEqual(_row(read_player_state(self.user.id), NOVICE_MODES)['modes'], ['00'])
@@ -288,7 +286,6 @@ class MedalStateCacheTests(MedalTestCase):
         self.assertNotIn('modes', _row(read_player_state(self.user.id), NOVICE_MODES))
 
     def test_missing_modes_set_falls_back_to_database_once(self):
-        from .utils import NOVICE_MODES, open_modes
         modes = list(open_modes())
         for mode in modes[:-1]:
             self.make_video(mode=mode, upload_time=self.earlier)
@@ -307,17 +304,26 @@ class MedalStateCacheTests(MedalTestCase):
         self.assertIsNotNone(self.active(NOVICE_MODES))
 
 
-class MedalStateQueueTests(MedalQueueTriggerTests):
+class MedalStateQueueTests(MedalTestCase):
+    def setUp(self):
+        self.user = UserProfile.objects.create_user(username='medal_state_queue', email='medal-state-queue@example.com')
+
     def test_ready_refresh_merges_video_ids(self):
-        from .tasks import enqueue_player_refresh
+        before = timezone.now()
         first = enqueue_player_refresh(self.user.id, video_ids=[11], degrade_levels=['b'])
         self.assertIsNotNone(first)
-        self.assertIsNone(enqueue_player_refresh(self.user.id, video_ids=[12], invalidate_once=True))
         row = DBTaskResult.objects.get(task_path=task_refresh_player_medals.module_path)
+        self.assertEqual(row.priority, 1)
+        self.assertGreaterEqual(row.run_after, before + REFRESH_COALESCE_DELAY)
+        scheduled = row.run_after
+        self.assertIsNone(enqueue_player_refresh(self.user.id, video_ids=[12], invalidate_once=True))
+        row.refresh_from_db()
+        self.assertEqual(row.run_after, scheduled)
         self.assertEqual(row.args_kwargs['args'], [self.user.id])
         self.assertEqual(row.args_kwargs['kwargs']['video_ids'], [11, 12])
         self.assertEqual(row.args_kwargs['kwargs']['degrade_levels'], ['b'])
         self.assertTrue(row.args_kwargs['kwargs']['invalidate_once'])
         self.assertIsNone(enqueue_player_refresh(self.user.id))
         row.refresh_from_db()
+        self.assertEqual(row.run_after, scheduled)
         self.assertEqual(row.args_kwargs['kwargs'], {'full': True})

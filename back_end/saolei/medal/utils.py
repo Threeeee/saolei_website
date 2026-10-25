@@ -1,3 +1,4 @@
+from datetime import timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from math import floor
 
@@ -31,6 +32,7 @@ STATE_CACHE_KEY = 'medal:state:{user_id}'
 STATE_ID_LIMIT = 100
 GRANT_PAGE_SIZE = 20
 GRANT_PAGE_SIZE_MAX = 50
+REFRESH_COALESCE_DELAY = timedelta(seconds=3)
 THRP_SCALE = 100000
 STANDARD_LEVELS = (
     MS_TextChoices.Level.BEGINNER, MS_TextChoices.Level.INTERMEDIATE, MS_TextChoices.Level.EXPERT,
@@ -44,6 +46,7 @@ NOVICE_LEVELS = 'novice.levels'
 NOVICE_LEVELS_NF = 'novice.levels_nf'
 NOVICE_MODES = 'novice.modes'
 NOVICE_SAOLEI = 'novice.saolei'
+VIDEO_ONCE_CODES = (NOVICE_REVIEW, NOVICE_LEVELS, NOVICE_LEVELS_NF, NOVICE_MODES)
 SERIES_REALNAME = '实名在册'
 SERIES_REVIEW = '录像过审'
 SERIES_LEVELS = '扫雷新秀'
