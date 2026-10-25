@@ -18,7 +18,7 @@ def task_refresh_player_medals(user_id: int, video_ids=None, degrade_levels=None
 
 
 def enqueue_player_refresh(user_id, video_ids=None, degrade_levels=None, invalidate_once=False, full=False):
-    """同一玩家已有一条 READY 的刷新任务时不再插入，只把这次碰到的录像并进那一条。新任务 3 秒后开始；合并不改已有任务的开始时间。"""
+    """同一玩家合并 READY 刷新；新任务延迟 3 秒，合并不推迟原时间，异常过晚的时间提前到当前延迟上限。"""
     ids = sorted({int(video_id) for video_id in (video_ids or []) if video_id is not None})
     levels = sorted({level for level in (degrade_levels or []) if level})
     if full or not (ids or levels or invalidate_once):
@@ -43,6 +43,14 @@ def enqueue_player_backfill(user_id: int):
     return _enqueue_player_task(task_backfill_player_medals, user_id)
 
 
+def player_refresh_pending(user_id: int):
+    """只检查当前玩家的未完成任务，不触发入队或勋章计算。"""
+    return DBTaskResult.objects.filter(
+        task_path__in=[task_refresh_player_medals.module_path, task_backfill_player_medals.module_path],
+        status__in=[TaskResultStatus.READY, TaskResultStatus.RUNNING], args_kwargs__args=[user_id],
+    ).exists()
+
+
 def _merge_refresh_kwargs(row, incoming):
     current = dict((row.args_kwargs or {}).get('kwargs') or {})
     if current.get('full') or incoming.get('full'):
@@ -56,13 +64,14 @@ def _merge_refresh_kwargs(row, incoming):
             merged['invalidate_once'] = True
         merged = {key: value for key, value in merged.items() if value not in (None, [], False)}
     if merged == current:
-        return
+        return []
     row.args_kwargs = {'args': list((row.args_kwargs or {}).get('args') or []), 'kwargs': merged}
-    row.save(update_fields=['args_kwargs'])
+    return ['args_kwargs']
 
 
 def _enqueue_player_task(player_task, user_id, defer=False, **kwargs):
     # Serialize producers for this player, including the empty-queue case.
+    run_after = timezone.now() + REFRESH_COALESCE_DELAY if defer else timezone.now()
     with transaction.atomic():
         if not UserProfile.objects.select_for_update().filter(pk=user_id).exists():
             return None
@@ -70,14 +79,19 @@ def _enqueue_player_task(player_task, user_id, defer=False, **kwargs):
             task_path=player_task.module_path, status=TaskResultStatus.READY, args_kwargs__args=[user_id],
         )
         if ready.exists():
-            if kwargs:
-                row = DBTaskResult.objects.select_for_update().filter(
-                    task_path=player_task.module_path, status=TaskResultStatus.READY, args_kwargs__args=[user_id],
-                ).first()
-                if row is not None:
-                    _merge_refresh_kwargs(row, kwargs)
-            return None
-        queued = player_task.using(run_after=timezone.now() + REFRESH_COALESCE_DELAY) if defer else player_task
+            row = DBTaskResult.objects.select_for_update().filter(
+                task_path=player_task.module_path, status=TaskResultStatus.READY, args_kwargs__args=[user_id],
+            ).first()
+            if row is not None:
+                changed = _merge_refresh_kwargs(row, kwargs) if kwargs else []
+                if row.run_after is not None and row.run_after > run_after:
+                    row.run_after = run_after
+                    changed.append('run_after')
+                if changed:
+                    row.save(update_fields=changed)
+                return None
+            # Worker 可以在 exists() 后领取任务；已运行的任务不再可合并，必须另排一次。
+        queued = player_task.using(run_after=run_after) if defer else player_task
         if kwargs:
             return queued.enqueue(user_id, **kwargs)
         return queued.enqueue(user_id)

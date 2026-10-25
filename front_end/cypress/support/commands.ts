@@ -85,6 +85,7 @@ declare global {
              */
             mockPlayerNameFallback(): void;
 
+            /** 每次断言重试重新读取表格，支持异步渲染及整表替换。 */
             extractTableData(): Chainable<string[][]>;
             shouldHaveState(expectedStates: (boolean | null)[]): Chainable<JQuery<HTMLInputElement>>;
         }
@@ -215,7 +216,8 @@ Cypress.Commands.add('shouldBeAbsentOrHidden', (selector, options) => {
     });
 });
 
-Cypress.Commands.add('extractTableData', { prevSubject: 'element' }, (subject) => {
+Cypress.Commands.addQuery('extractTableData', () => (subject: JQuery) => {
+    Cypress.ensure.isElement(subject, 'extractTableData', cy);
     const $table = Cypress.$(subject);
     const $rows = $table.find('> thead > tr, > tbody > tr, > tr');
     const tableData = [] as string[][];
@@ -228,7 +230,7 @@ Cypress.Commands.add('extractTableData', { prevSubject: 'element' }, (subject) =
         });
         tableData.push(rowData);
     });
-    return cy.wrap(tableData);
+    return tableData;
 });
 
 Cypress.Commands.add(

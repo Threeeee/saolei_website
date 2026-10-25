@@ -23,7 +23,7 @@ import { RouterLink } from 'vue-router';
 import BaseTooltip from '@/components/common/BaseTooltip.vue';
 import PlayerBadge from '@/components/widgets/PlayerBadge.vue';
 import type { MedalStateRecord } from '@/services/medalService';
-import { fetchPlayerMedalState, medalSeriesFromCode } from '@/services/medalService';
+import { fetchPlayerMedalState, medalSeriesFromCode, medalStateVersions } from '@/services/medalService';
 import { fetchUserInfo } from '@/services/userService';
 import { local } from '@/store/local';
 import { formatName } from '@/utils/strings';
@@ -98,7 +98,7 @@ watch(() => props.userId, async (newVal, _, onCleanup) => {
         if (active) loading.value = false;
     }
 }, { immediate: true });
-watch(() => props.userId, async (newVal, _, onCleanup) => {
+watch(() => [props.userId, medalStateVersions[props.userId]] as const, async ([newVal], _, onCleanup) => {
     let active = true;
     onCleanup(() => {
         active = false;

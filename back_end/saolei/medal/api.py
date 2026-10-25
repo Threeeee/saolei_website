@@ -9,13 +9,26 @@ from ninja.errors import HttpError
 
 from userprofile.decorators import login_required_error, staff_required
 from userprofile.models import UserProfile
-from .schema import CatalogItemOut, EnqueuedOut, GrantIdOut, GrantPageOut, PinsIn, PinsOut, PlayerMedalOut, PlayerStateOut, RebuildIn, RevokeIn, StaffCatalogItemOut, StaffGrantIn, StaffOverrideIn, StaffOverrideOut, StaffPlayerMedalsOut
+from .schema import CatalogItemOut, EnqueuedOut, GrantIdOut, GrantPageOut, PinsIn, PinsOut, PlayerMedalOut, PlayerStateOut, RebuildIn, RefreshStatusOut, RevokeIn, StaffCatalogItemOut, StaffGrantIn, StaffOverrideIn, StaffOverrideOut, StaffPlayerMedalsOut
 from .services import catalog_for, grant_manual, list_grants, MedalError, player_states, player_summary, replace_pins, revoke_manual, set_player_override
 from .staff_services import staff_catalog, staff_player_state
-from .tasks import enqueue_player_backfill, enqueue_player_refresh
+from .tasks import enqueue_player_backfill, enqueue_player_refresh, player_refresh_pending
 from .utils import GRANT_PAGE_SIZE, GRANT_PAGE_SIZE_MAX, STATE_ID_LIMIT
 
 router = Router()
+
+
+@router.get('/refresh-status', response=RefreshStatusOut)
+@decorate_view(login_required_error)
+@decorate_view(ratelimit(key='user', rate='30/m', block=True))
+def get_refresh_status(request):
+    """
+    - login_required_error
+    - ratelimit(key='user', rate='30/m', block=True)
+
+    上传后检查本人的刷新/补发任务是否仍在排队或运行；只读一次 EXISTS，不扫描录像。
+    """
+    return {'user_id': request.user.id, 'pending': player_refresh_pending(request.user.id)}
 
 
 def _http_error(exc: MedalError):
@@ -64,7 +77,7 @@ def get_player_states(request, ids: str = ''):
     """
     - ratelimit(key='ip', rate='5/s')
 
-    批量返回已入档且未锁定的勋章。ids 最多 100 个。命中 Redis 时不查 MySQL。
+    批量返回已入档且未锁定的勋章。ids 最多 100 个。命中 Redis 时不查 MySQL，缺键批量读取摘要，不扫描录像。
     """
     return player_states(_parse_state_ids(ids))
 

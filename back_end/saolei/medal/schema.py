@@ -8,6 +8,11 @@ from pydantic import Field, StrictInt
 from .models import MedalDefinition, MedalGrant, MedalOverride, MedalOverrideLog
 
 
+class RefreshStatusOut(Schema):
+    user_id: int
+    pending: bool
+
+
 class CatalogItemOut(Schema):
     code: str
     series: str

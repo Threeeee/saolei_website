@@ -310,3 +310,116 @@ describe('player medal state for name hover', () => {
         expect(axiosGet).toHaveBeenNthCalledWith(2, '/api/medal/players/state', { params: { ids: '3' } });
     });
 });
+
+describe('bounded synchronization after uploads', () => {
+    beforeEach(() => {
+        vi.useFakeTimers();
+        vi.resetModules();
+        axiosGet.mockReset();
+    });
+    afterEach(() => {
+        vi.clearAllTimers();
+        vi.useRealTimers();
+    });
+
+    it('waits for the worker and updates page, pins and hover cache together', async () => {
+        const api = await import('./medalService');
+        axiosGet.mockResolvedValueOnce({ data: [{ user_id: 1, grants: [] }] });
+        const cached = api.fetchPlayerMedalState(1);
+        await vi.advanceTimersByTimeAsync(1);
+        await cached;
+        axiosGet.mockResolvedValueOnce({ data: summary(false, 1) });
+        const page = vi.fn<() => void>();
+        const pins = vi.fn<() => void>();
+        api.subscribePlayerMedals(1, page, vi.fn<() => void>());
+        api.subscribePlayerMedals(1, pins, vi.fn<() => void>());
+        await api.fetchPlayerMedals(1);
+        axiosGet.mockClear();
+        axiosGet.mockResolvedValueOnce({ data: { user_id: 1, pending: true } }).
+            mockResolvedValueOnce({ data: { user_id: 1, pending: false } }).
+            mockResolvedValueOnce({ data: summary(false, 2) });
+        api.syncMedalsAfterUpload();
+        api.syncMedalsAfterUpload();
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(axiosGet).toHaveBeenCalledTimes(1);
+        expect(page).toHaveBeenLastCalledWith(summary(false, 1));
+        await vi.advanceTimersByTimeAsync(2000);
+        expect(axiosGet).toHaveBeenCalledTimes(3);
+        expect(page).toHaveBeenLastCalledWith(summary(false, 2));
+        expect(pins).toHaveBeenLastCalledWith(summary(false, 2));
+        expect(api.medalStateVersions[1]).toBe(1);
+        axiosGet.mockResolvedValue({ data: [{ user_id: 1, grants: [] }] });
+        const updated = api.fetchPlayerMedalState(1);
+        await vi.advanceTimersByTimeAsync(1);
+        await updated;
+        await vi.advanceTimersByTimeAsync(300_000);
+        expect(axiosGet).toHaveBeenCalledTimes(4);
+    });
+
+    it('caps a missing worker at eight lightweight requests', async () => {
+        const { syncMedalsAfterUpload } = await import('./medalService');
+        axiosGet.mockResolvedValue({ data: { user_id: 1, pending: true } });
+        syncMedalsAfterUpload();
+        await vi.advanceTimersByTimeAsync(600_000);
+        expect(axiosGet).toHaveBeenCalledTimes(8);
+        expect(axiosGet.mock.calls.every(([url]) => url === '/api/medal/refresh-status')).toBe(true);
+    });
+
+    it('merges batches and ignores idle responses predating a newer upload', async () => {
+        const { syncMedalsAfterUpload } = await import('./medalService');
+        const response = Promise.withResolvers<{ data: { user_id: number; pending: boolean } }>();
+        axiosGet.mockReturnValueOnce(response.promise).mockResolvedValue({ data: { user_id: 1, pending: false } });
+        syncMedalsAfterUpload();
+        await vi.advanceTimersByTimeAsync(1000);
+        for (let i = 0; i < 100; i += 1) syncMedalsAfterUpload();
+        await vi.advanceTimersByTimeAsync(30_000);
+        expect(axiosGet).toHaveBeenCalledTimes(1);
+        response.resolve({ data: { user_id: 1, pending: false } });
+        await vi.advanceTimersByTimeAsync(2000);
+        expect(axiosGet).toHaveBeenCalledTimes(2);
+        await vi.advanceTimersByTimeAsync(300_000);
+        expect(axiosGet).toHaveBeenCalledTimes(2);
+    });
+
+    it('stops on HTTP failure and allows a later upload to retry', async () => {
+        const { syncMedalsAfterUpload } = await import('./medalService');
+        axiosGet.mockRejectedValueOnce(new Error('offline')).mockResolvedValue({ data: { user_id: 1, pending: false } });
+        syncMedalsAfterUpload();
+        await vi.advanceTimersByTimeAsync(300_000);
+        expect(axiosGet).toHaveBeenCalledTimes(1);
+        syncMedalsAfterUpload();
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(axiosGet).toHaveBeenCalledTimes(2);
+    });
+
+    it('invalidates a closed page without requesting an unused summary', async () => {
+        const { fetchPlayerMedals, syncMedalsAfterUpload } = await import('./medalService');
+        axiosGet.mockResolvedValueOnce({ data: summary(false, 1) });
+        await fetchPlayerMedals(1);
+        axiosGet.mockResolvedValueOnce({ data: { user_id: 1, pending: false } }).
+            mockResolvedValueOnce({ data: summary(false, 2) });
+        syncMedalsAfterUpload();
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(axiosGet).toHaveBeenCalledTimes(2);
+        expect(await fetchPlayerMedals(1)).toEqual(summary(false, 2));
+    });
+
+    it('rejects stale hover cache writes when a pre-upload request finishes late', async () => {
+        const { fetchPlayerMedalState, syncMedalsAfterUpload } = await import('./medalService');
+        const oldResponse = Promise.withResolvers<{ data: { user_id: number; grants: MedalStateRecord[] }[] }>();
+        axiosGet.mockReturnValueOnce(oldResponse.promise).
+            mockResolvedValueOnce({ data: { user_id: 1, pending: false } }).
+            mockResolvedValueOnce({ data: [{ user_id: 1, grants: [] }] });
+        const old = fetchPlayerMedalState(1);
+        await vi.advanceTimersByTimeAsync(1);
+        syncMedalsAfterUpload();
+        await vi.advanceTimersByTimeAsync(1000);
+        const current = fetchPlayerMedalState(1);
+        oldResponse.resolve({ data: [{ user_id: 1, grants: [{ code: 'old', stage: 1, timestamp: null, scope: '', tournament: null, rank: null }] }] });
+        await old;
+        await vi.advanceTimersByTimeAsync(1);
+        expect(await current).toEqual([]);
+        expect(await fetchPlayerMedalState(1)).toEqual([]);
+        expect(axiosGet).toHaveBeenCalledTimes(3);
+    });
+});

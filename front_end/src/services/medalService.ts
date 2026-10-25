@@ -1,3 +1,5 @@
+import { shallowReactive } from 'vue';
+
 import { serviceConfig } from './store';
 
 import $axios from '@/http';
@@ -54,6 +56,46 @@ const SUMMARY_TTL = 30_000;
 const SCAN_POLL_INTERVAL = 2000;
 const SCAN_POLL_LIMIT = 10;
 const SUMMARY_CACHE_LIMIT = 50;
+
+// Upload-triggered only: at most eight small status requests, then one summary refresh.
+const UPLOAD_SYNC_DELAYS = [1000, 2000, 3000, 5000, 8000, 13000, 20000, 30000];
+let uploadSync: { generation: number; attempts: number } | undefined;
+
+export function syncMedalsAfterUpload(): void {
+    if (uploadSync) {
+        uploadSync.generation += 1;
+        return;
+    }
+    const sync = { generation: 0, attempts: 0 };
+    uploadSync = sync;
+    const schedule = () => {
+        if (sync.attempts >= UPLOAD_SYNC_DELAYS.length) {
+            uploadSync = undefined;
+            return;
+        }
+        setTimeout(() => {
+            void check();
+        }, UPLOAD_SYNC_DELAYS[sync.attempts]);
+    };
+    const check = async () => {
+        const { generation } = sync;
+        sync.attempts += 1;
+        try {
+            const { data } = await $axios.get<{ user_id: number; pending: boolean }>('/api/medal/refresh-status', { timeout: 5000 });
+            if (generation !== sync.generation || data.pending) {
+                schedule();
+                return;
+            }
+            invalidatePlayerMedalState(data.user_id);
+            refreshPlayerMedals(data.user_id);
+            uploadSync = undefined;
+        } catch {
+            // Authentication, rate-limit and network failures must not create a retry loop.
+            uploadSync = undefined;
+        }
+    };
+    schedule();
+}
 
 interface SummaryListener {
     receive: (summary: PlayerMedals) => void;
@@ -173,8 +215,15 @@ interface MedalStateRequest {
 }
 
 const medalStateCache = new Map<number, MedalStateRecord[]>();
+export const medalStateVersions = shallowReactive<Record<number, number>>({});
 const medalStateRequests = new Map<number, MedalStateRequest>();
 let medalStateTimer: ReturnType<typeof setTimeout> | null = null;
+
+function invalidatePlayerMedalState(userId: number) {
+    medalStateCache.delete(userId);
+    medalStateRequests.delete(userId);
+    medalStateVersions[userId] = (medalStateVersions[userId] ?? 0) + 1;
+}
 
 function rememberMedalState(userId: number, grants: MedalStateRecord[]) {
     if (medalStateCache.has(userId)) medalStateCache.delete(userId);
@@ -215,18 +264,18 @@ async function processMedalStateBatch() {
     try {
         const { data } = await $axios.get<PlayerMedalState[]>('/api/medal/players/state', { params: { ids: userIds.join(',') } });
         const byId = new Map((data ?? []).map((row) => [row.user_id, grantedStateRecords(row.grants)]));
-        for (const [userId, { resolve }] of entries) {
+        for (const [userId, request] of entries) {
             const grants = byId.get(userId) ?? [];
-            rememberMedalState(userId, grants);
-            resolve(grants);
+            if (medalStateRequests.get(userId) === request) rememberMedalState(userId, grants);
+            request.resolve(grants);
         }
     } catch (error) {
         entries.forEach(([, { reject }]) => {
             reject(error);
         });
     } finally {
-        entries.forEach(([userId]) => {
-            medalStateRequests.delete(userId);
+        entries.forEach(([userId, request]) => {
+            if (medalStateRequests.get(userId) === request) medalStateRequests.delete(userId);
         });
         if ([...medalStateRequests.values()].some((request) => request.status === 'pending')) scheduleMedalStateBatch();
     }

@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from django.db import close_old_connections, connection
 from django.test import override_settings, skipUnlessDBFeature, TransactionTestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from config.text_choices import MS_TextChoices
@@ -170,18 +171,17 @@ class MedalOverrideTests(OverrideFixture, tests.MedalTestCase):
         granted.refresh_from_db()
         self.assertIsNotNone(granted.revoked_at)
 
-    def test_overridden_pb_skips_aggregation_when_real_progress_is_unchanged(self):
-        video = self.make_video(timems=19000)
+    def test_overridden_pb_keeps_natural_stage_without_storing_best(self):
+        self.make_video(timems=19000)
         evaluate_player(self.user.id)
-        below_threshold = self.progress('ability.bvs.b')
-        self.assertEqual(below_threshold.current_stage, 0)
-        self.assertEqual(below_threshold.best_video_id, video.id)
-        self.assertGreater(below_threshold.current_value, 0)
+        self.assertFalse(PlayerProgress.objects.filter(user=self.user, code='ability.bvs.b').exists())
         self.decide(stage=1000)
-        with patch.object(services, '_aggregate_level', wraps=services._aggregate_level) as aggregate:
+        with CaptureQueriesContext(connection) as captured:
             evaluate_player(self.user.id)
-        self.assertNotIn('b', [call.args[1] for call in aggregate.call_args_list])
+        self.assertFalse(any(query['sql'].lstrip().upper().startswith(('INSERT ', 'UPDATE ', 'DELETE ')) for query in captured))
         self.assertEqual(self.progress().current_stage, 20000)
+        self.assertIsNone(self.progress().current_value)
+        self.assertIsNone(self.progress().best_video_id)
 
     def test_normal_medals_cannot_create_scoped_duplicate_grants(self):
         with self.assertRaises(MedalError) as raised:

@@ -7,7 +7,7 @@ from accountlink.models import AccountLinkQueue, Platform
 from config.text_choices import MS_TextChoices
 from userprofile.models import UserProfile
 from videomanager.models import STNB_COEFFICIENTS, VideoModel
-from .cache import invalidate_catalog, read_catalog, read_player_state, read_player_states, write_catalog, write_player_state
+from .cache import invalidate_catalog, read_catalog, read_player_states, write_catalog, write_player_states
 from .models import MedalDefinition, MedalGrant, MedalOverride, MedalOverrideLog, MedalPins, MedalScan, PlayerMedalSummary, PlayerProgress
 from .utils import basic_definitions, BVS_SCALE, DIRECTION_DESC, KIND_COMPOSITE, KIND_EVENT_PLACE, KIND_GSC_PLACE, KIND_GSC_STAT, KIND_MANUAL, KIND_MIN_VIDEO_ID, KIND_ONCE, KIND_PB, MAX_PINS, next_threshold, NOVICE_LEVELS, NOVICE_LEVELS_NF, NOVICE_MODES, NOVICE_REALNAME, NOVICE_REVIEW, NOVICE_SAOLEI, open_modes, reached_asc_stage, reached_desc_stage, scale_units, SHAREHOLDER_CODE, SHAREHOLDER_THRESHOLDS, STANDARD_LEVELS, STYLE_FL, STYLE_NF, threshold_index, THRP_SCALE, VIDEO_ONCE_CODES
 
@@ -126,12 +126,21 @@ class _EvaluationState:
     """一次评估共用已读状态，进度只在最后集中写入有变化的行。"""
 
     def __init__(self, user):
-        self.progress = {row.code: row for row in PlayerProgress.objects.filter(user=user).select_related('best_video')}
+        self.definitions = {row.code: row for row in MedalDefinition.objects.filter(active=True)}
+        self.progress = {row.code: row for row in PlayerProgress.objects.filter(user=user).select_related('definition')}
         self.all_grants = {(row.definition_code, row.scope_key): row for row in MedalGrant.objects.filter(user=user).select_related('video', 'participant')}
         self.grants = {row.definition_code: row for row in self.all_grants.values() if not row.scope_key}
         self.overrides = {(row.definition_code, row.scope_key): row for row in MedalOverride.objects.filter(user=user)}
         self.changed = {}
         self.history_dirty = set()
+        for row in self.progress.values():
+            if row.definition.kind == KIND_PB and (row.current_value is not None or row.best_video_id is not None):
+                row.current_value = None
+                row.best_video = None
+                self.changed[row.code] = row
+
+    def definitions_of(self, kind):
+        return [row for row in self.definitions.values() if row.kind == kind]
 
     def flush(self):
         new = [row for row in self.changed.values() if row.pk is None]
@@ -143,6 +152,9 @@ class _EvaluationState:
 
 
 def _save_progress(user, definition, stage_value, current_value, extra, best_video, state=None):
+    # 能力勋章只保留自然档位，成绩及录像由授予证据提供，不另存一份 PB。
+    if definition.kind == KIND_PB:
+        current_value, best_video = None, None
     progress = state.progress.get(definition.code) if state is not None else PlayerProgress.objects.filter(user=user, code=definition.code).first()
     if progress is None:
         progress = PlayerProgress(
@@ -282,6 +294,8 @@ def _medal_item(definition, grant, progress):
     thresholds = definition['thresholds']
     stage = grant['stage'] if grant is not None else None
     value = progress if grant is None or grant['scope_key'] == '' else None
+    if definition['kind'] == KIND_PB:
+        value = None
     index = threshold_index(thresholds, stage) if stage else -1
     scores = definition['score_by_stage']
     score = 0
@@ -310,18 +324,6 @@ def _unix_seconds(value):
     return int(value.timestamp())
 
 
-def _tournament_rank(grant):
-    evidence = grant.evidence if isinstance(grant.evidence, dict) else {}
-    rank = evidence.get('rank') if isinstance(evidence.get('rank'), int) else None
-    tournament = None
-    if grant.participant_id:
-        participant = grant.participant
-        tournament = None if participant is None else participant.tournament_id
-    elif isinstance(evidence.get('tournament_id'), int):
-        tournament = evidence['tournament_id']
-    return tournament, rank
-
-
 def _set_from_extra(extra, key):
     if not isinstance(extra, dict):
         return []
@@ -331,106 +333,46 @@ def _set_from_extra(extra, key):
     return [str(item) for item in values]
 
 
-def _attach_novice_sets(item, progress):
-    """未入档的全级别 / 全模式把已见集合放进状态，供增量并集；已入档不需要。"""
-    if progress is None or (item.get('stage') or 0) > 0:
-        return item
-    if item['code'] in (NOVICE_LEVELS, NOVICE_LEVELS_NF):
-        levels = _set_from_extra(progress.extra, 'levels')
-        if levels:
-            item['levels'] = levels
-    elif item['code'] == NOVICE_MODES:
-        modes = _set_from_extra(progress.extra, 'modes')
-        if modes:
-            item['modes'] = modes
-    return item
-
-
-def _player_state_payload(user, state=None):
-    """已扫描玩家的比较快照。未入档但已有成绩的 code 保留 stage 0；人工撤销带 locked。"""
-    if state is None:
-        progress_rows = list(PlayerProgress.objects.filter(user=user))
-        grants = list(MedalGrant.objects.filter(user=user).select_related('participant'))
-        overrides = list(MedalOverride.objects.filter(user=user))
-    else:
-        progress_rows = list(state.progress.values())
-        grants = list(state.all_grants.values())
-        overrides = list(state.overrides.values())
-    locked = {(row.definition_code, row.scope_key) for row in overrides if row.mode == 'revoke'}
-    progress_by_code = {row.code: row for row in progress_rows}
-    entries = []
-    seen = set()
-    for grant in grants:
-        key = (grant.definition_code, grant.scope_key)
-        is_locked = key in locked
-        if grant.revoked_at is not None and not is_locked:
-            continue
-        progress = progress_by_code.get(grant.definition_code) if grant.scope_key == '' else None
-        if is_locked:
-            stage = 0 if progress is None else progress.current_stage
-            value = None if progress is None else progress.current_value
-            timestamp = None
-        else:
-            stage = grant.stage
-            value = None if progress is None else progress.current_value
-            timestamp = _unix_seconds(grant.granted_at)
-        tournament, rank = _tournament_rank(grant)
-        if not is_locked and stage <= 0 and value is None and not _novice_set_extra(progress):
-            continue
-        item = {
-            'code': grant.definition_code, 'stage': stage, 'value': value, 'timestamp': timestamp,
-            'scope': grant.scope_key, 'tournament': tournament, 'rank': rank,
+def _display_state(data):
+    """展示快照只含已授予事实；计算进度、人工覆盖和证据留在数据库。"""
+    grants = [
+        {
+            'code': row['code'], 'stage': row['stage'], 'timestamp': _unix_seconds(parse_datetime(row['granted_at'])),
+            'scope': row['scope_key'], 'tournament': row['tournament_id'], 'rank': row['rank'],
         }
-        if is_locked:
-            item['locked'] = True
-        entries.append(_attach_novice_sets(item, progress))
-        seen.add(key)
-    for code, progress in progress_by_code.items():
-        if (code, '') in seen:
-            continue
-        is_locked = (code, '') in locked
-        has_set = _novice_set_extra(progress)
-        if progress.current_value is None and progress.current_stage <= 0 and not is_locked and not has_set:
-            continue
-        item = {
-            'code': code, 'stage': progress.current_stage, 'value': progress.current_value,
-            'timestamp': None, 'scope': '', 'tournament': None, 'rank': None,
-        }
-        if is_locked:
-            item['locked'] = True
-        entries.append(_attach_novice_sets(item, progress))
-        seen.add((code, ''))
-    for code, scope in sorted(locked):
-        if (code, scope) in seen:
-            continue
-        entries.append({
-            'code': code, 'stage': 0, 'value': None, 'timestamp': None,
-            'scope': scope, 'tournament': None, 'rank': None, 'locked': True,
-        })
-    entries.sort(key=lambda item: (item['scope'], item['code']))
-    return {'grants': entries}
+        for row in sorted(data['grants'], key=lambda row: (row['scope_key'], row['code'])) if row['stage'] > 0
+    ]
+    return {'grants': grants}
 
 
-def _novice_set_extra(progress):
-    if progress is None or not isinstance(progress.extra, dict):
-        return False
-    return bool(_set_from_extra(progress.extra, 'levels') or _set_from_extra(progress.extra, 'modes'))
+@transaction.atomic
+def _flush_player_states(user_ids):
+    """缓存写入共用玩家锁并读取最新摘要，旧回调和冷缓存回填不能覆盖新结果。"""
+    users = list(UserProfile.objects.select_for_update().select_related('medal_summary', 'medal_scan').filter(pk__in=user_ids).order_by('pk'))
+    scanned = [user for user in users if getattr(user, 'medal_scan', None) is not None]
+    missing = [user.pk for user in scanned if getattr(user, 'medal_summary', None) is None]
+    grants = {}
+    if missing:
+        # 证据删除或旧数据没有摘要时只读勋章，不回扫录像，也不逐个玩家查库。
+        for grant in MedalGrant.objects.filter(user_id__in=missing, revoked_at__isnull=True).select_related('participant').order_by('scope_key', 'id'):
+            grants.setdefault(grant.user_id, []).append(_summary_grant(grant))
+    stored = {}
+    for user in scanned:
+        summary = getattr(user, 'medal_summary', None)
+        data = summary.data if summary is not None else {'grants': grants.get(user.pk, [])}
+        stored[user.pk] = _display_state(data)
+    write_player_states(stored)
+    return stored
 
 
 def _flush_player_state(user_id):
-    """提交后再从库组装状态。避免先提交的事务用旧快照盖住后提交的结果。"""
-    user = UserProfile.objects.select_related('medal_scan').filter(pk=user_id).first()
-    if user is None or getattr(user, 'medal_scan', None) is None:
-        return
-    write_player_state(user_id, _player_state_payload(user))
+    return _flush_player_states([user_id]).get(user_id)
 
 
-def _schedule_player_state(user, state):
-    """摘要提交之后才写 Redis。没有 MedalScan 时不造键，避免把未扫描当成零枚勋章。"""
-    if getattr(user, 'medal_scan', None) is None:
-        return
-    user_id = user.pk
-    transaction.on_commit(lambda user_id=user_id: _flush_player_state(user_id))
+def _schedule_player_state(user):
+    if getattr(user, 'medal_scan', None) is not None:
+        user_id = user.pk
+        transaction.on_commit(lambda user_id=user_id: _flush_player_state(user_id), robust=True)
 
 
 def _publish_summary(user, state=None):
@@ -449,12 +391,14 @@ def _publish_summary(user, state=None):
         'pin_ids': pins.grant_ids if pins is not None and isinstance(pins.grant_ids, list) else [],
     }
     summary = getattr(user, 'medal_summary', None)
+    display_changed = summary is None or summary.data.get('scan_pending') != data['scan_pending'] or _display_state(summary.data) != _display_state(data)
     if summary is None:
         user.medal_summary = PlayerMedalSummary.objects.create(user=user, data=data)
     elif summary.data != data:
         summary.data = data
         summary.save(update_fields=['data'])
-    _schedule_player_state(user, state)
+    if display_changed:
+        _schedule_player_state(user)
     return data
 
 
@@ -536,8 +480,11 @@ def _public_state_grants(payload):
 
 
 def player_states(user_ids):
-    """只读 Redis。没有键的玩家返回空列表，不把未扫描当成一次 MySQL 详情查询。"""
+    """Redis 命中时不查库；缺键批量读最新摘要，未扫描玩家仍返回空列表。"""
     stored = read_player_states(user_ids)
+    missing = [user_id for user_id in user_ids if user_id not in stored]
+    if missing:
+        stored.update(_flush_player_states(missing))
     return [{'user_id': user_id, 'grants': _public_state_grants(stored.get(user_id))} for user_id in user_ids]
 
 
@@ -584,6 +531,7 @@ def grant_manual(actor, code, user_id, reason, granted_at, stage=None, scope_key
 def _evaluate_locked(user):
     """调用者已持有玩家锁。跑完才记下 MedalScan，提交后再写 Redis。"""
     ensure_basic_definitions()
+    ensure_shareholder_definition()
     state = _EvaluationState(user)
     evaluate_min_video_id(user, state)
     evaluate_once(user, state)
@@ -606,8 +554,8 @@ def evaluate_player(user_id):
 
 def evaluate_min_video_id(user, state=None):
     """按该玩家仍在库里的最小录像 id 改写原始股东。不看出审、模式和难度。"""
-    definition = ensure_shareholder_definition()
-    if not definition.active:
+    definition = state.definitions.get(SHAREHOLDER_CODE) if state is not None else ensure_shareholder_definition()
+    if definition is None or not definition.active:
         return None
     video = VideoModel.objects.filter(player_id=user.id).order_by('id').first()
     if video is None:
@@ -739,82 +687,6 @@ def _meets_stage(definition, raw, stage):
     return units is not None and units >= stage
 
 
-def _candidate_filter(definition):
-    style = _style_key(definition)
-    if definition.metric == 'thrp':
-        return _thrp_filter(style)
-    if style == STYLE_NF:
-        return Q(right_ce=0)
-    if style == STYLE_FL:
-        return Q(right_ce__gt=0)
-    return Q()
-
-
-def _better_filter(definition, video):
-    style_filter = _candidate_filter(definition)
-    if definition.metric == 'timems' and video.timems is not None:
-        return style_filter & Q(timems__lt=video.timems)
-    if definition.metric == 'bvs' and video.bvs is not None:
-        return style_filter & Q(bvs__gt=video.bvs)
-    if definition.metric == 'stnb' and video.iqg is not None:
-        return style_filter & Q(iqg__gt=video.iqg)
-    if definition.metric == 'thrp' and video.thrp is not None:
-        return style_filter & Q(thrp__gt=video.thrp)
-    return None
-
-
-def _matches_any_video(clause):
-    return not clause.children and clause.connector == Q.AND
-
-
-def _level_needs_aggregate(user, level, definitions, progress, grants, overrides):
-    missing = []
-    better = None
-    for definition in definitions:
-        row = progress.get(definition.code)
-        grant = grants.get(definition.code)
-        overridden = (definition.code, '') in overrides
-        video = None if row is None else row.best_video
-        qualified = video is not None and _video_qualifies(video, definition, user.id)
-        if row is not None and row.current_stage > 0 and not qualified:
-            return True
-        if row is not None and video is not None and not qualified:
-            return True
-        if row is not None and video is None and row.current_value is not None:
-            return True
-        if qualified:
-            raw = _raw_value(video, definition)
-            fresh = _units_of(definition, raw)
-            stage = _stage_of(definition, raw)
-            if fresh != row.current_value or stage != row.current_stage:
-                return True
-            if not overridden and stage > 0 and not _evidence_stands(grant, definition, stage, user.id):
-                return True
-            if not overridden and stage == 0 and grant is not None and grant.revoked_at is None:
-                return True
-            clause = _better_filter(definition, video)
-            if clause is not None:
-                better = clause if better is None else better | clause
-            continue
-        if not overridden and grant is not None and grant.revoked_at is None:
-            return True
-        missing.append(definition)
-    if missing:
-        wanted = None
-        for item in missing:
-            clause = _candidate_filter(item)
-            if _matches_any_video(clause):
-                if _pb_queryset(user, level).exists():
-                    return True
-                continue
-            wanted = clause if wanted is None else wanted | clause
-        if wanted is not None and _pb_queryset(user, level).filter(wanted).exists():
-            return True
-    if better is not None and _pb_queryset(user, level).filter(better).exists():
-        return True
-    return False
-
-
 def _aggregate_level(user, level):
     queryset = _pb_queryset(user, level)
     nf = Q(right_ce=0)
@@ -843,31 +715,6 @@ def _aggregate_raw(stats, definition):
     return None
 
 
-def _best_videos_for_level(user, level, definitions, stats):
-    """同一难度只读取一次极值候选，多个指标/风格共享同一批录像。"""
-    wanted = None
-    targets = {}
-    for definition in definitions:
-        metric = {'timems': 'time', 'stnb': 'iqg'}.get(definition.metric, definition.metric)
-        value = stats.get(f'{metric}_{_style_key(definition)}')
-        if value is None:
-            continue
-        field = 'iqg' if definition.metric == 'stnb' else definition.metric
-        targets[definition.code] = (definition, field, value)
-        clause = _candidate_filter(definition) & Q(**{field: value})
-        wanted = clause if wanted is None else wanted | clause
-    if wanted is None:
-        return {}
-    best = {}
-    for video in _pb_queryset(user, level).filter(wanted).order_by('upload_time', 'id').iterator():
-        for code, (definition, field, value) in targets.items():
-            if code not in best and getattr(video, field) == value and _video_qualifies(video, definition, user.id):
-                best[code] = video
-        if len(best) == len(targets):
-            break
-    return best
-
-
 def _earliest_for_stage(user, definition, stage):
     queryset = _qualified(user, definition)
     if definition.metric == 'timems':
@@ -878,9 +725,9 @@ def _earliest_for_stage(user, definition, stage):
             return None
         queryset = queryset.filter(iqg__gte=stage / coefficient)
     elif definition.metric == 'bvs':
-        queryset = queryset.filter(bvs__gte=stage / BVS_SCALE)
+        queryset = queryset.filter(bvs__gte=(stage - 0.5) / BVS_SCALE)
     else:
-        queryset = queryset.filter(thrp__gte=stage / THRP_SCALE)
+        queryset = queryset.filter(thrp__gte=(stage - 0.5) / THRP_SCALE)
     return queryset.order_by('upload_time', 'id').first()
 
 
@@ -892,44 +739,33 @@ def _evidence_stands(grant, definition, stage, user_id):
     return _video_qualifies(video, definition, user_id) and _meets_stage(definition, raw, stage)
 
 
-def _apply_pb(user, definition, stats, progress, grant, best, state=None, overridden=False):
-    raw = _aggregate_raw(stats, definition)
-    units = _units_of(definition, raw)
-    stage = _stage_of(definition, raw)
-    if best is None:
-        stage = 0
-        units = None
+def _apply_pb(user, definition, stats, progress, grant, state=None, overridden=False):
+    stage = _stage_of(definition, _aggregate_raw(stats, definition))
     if overridden:
-        if progress is not None or best is not None:
-            _save_progress(user, definition, stage, units, UNSET, best, state)
+        if progress is not None or stage > 0:
+            _save_progress(user, definition, stage, None, UNSET, None, state)
         return grant
     if stage <= 0:
-        if progress is None and grant is None and best is None:
-            return None
-        if progress is not None and progress.current_stage == 0 and progress.current_value == units and progress.best_video_id == (None if best is None else best.id) and (grant is None or grant.revoked_at is not None):
+        if progress is None and (grant is None or grant.revoked_at is not None):
             return grant
-        return write_stage(user, definition, stage=0, current_value=units, best_video=best, state=state)
-    stands = _evidence_stands(grant, definition, stage, user.id)
-    same_progress = progress is not None and progress.current_stage == stage and progress.current_value == units and progress.best_video_id == best.id
-    if stands and same_progress:
-        return grant
-    if stands:
-        return write_stage(user, definition, stage=stage, current_value=units, best_video=best, keep_evidence=True, state=state)
-    earliest = _earliest_for_stage(user, definition, stage) or best
+        return write_stage(user, definition, stage=0, state=state)
+    if _evidence_stands(grant, definition, stage, user.id):
+        return write_stage(user, definition, stage=stage, keep_evidence=True, state=state)
+    earliest = _earliest_for_stage(user, definition, stage)
     return write_stage(
-        user, definition, stage=stage, current_value=units, best_video=best, video=earliest,
+        user, definition, stage=stage, video=earliest,
         granted_at=None if earliest is None else earliest.upload_time, evidence={'video_id': None if earliest is None else earliest.id},
         keep_evidence=False, state=state,
     )
 
 
 def evaluate_pb(user, state=None, levels=None):
-    """按难度聚合生涯最佳。当前最佳仍有效、也没有更好的录像时，不重扫该难度。指定 levels 时这些难度直接聚合。"""
-    definitions = list(MedalDefinition.objects.filter(active=True, kind=KIND_PB, metric__in=['timems', 'bvs', 'stnb', 'thrp'], level__in=STANDARD_LEVELS))
+    """全量或失效重算时按难度聚合判定档位，聚合值只用于本次计算，不保存最佳成绩及录像。"""
+    definitions = [row for row in state.definitions_of(KIND_PB) if row.metric in ('timems', 'bvs', 'stnb', 'thrp') and row.level in STANDARD_LEVELS] if state is not None else list(MedalDefinition.objects.filter(active=True, kind=KIND_PB, metric__in=['timems', 'bvs', 'stnb', 'thrp'], level__in=STANDARD_LEVELS))
     if not definitions:
         return
     codes = [item.code for item in definitions]
-    progress = state.progress if state is not None else {row.code: row for row in PlayerProgress.objects.filter(user=user, code__in=codes).select_related('best_video')}
+    progress = state.progress if state is not None else {row.code: row for row in PlayerProgress.objects.filter(user=user, code__in=codes)}
     grants = state.grants if state is not None else {row.definition_code: row for row in MedalGrant.objects.filter(user=user, definition_code__in=codes, scope_key='').select_related('video')}
     overrides = state.overrides if state is not None else {(row.definition_code, row.scope_key): row for row in MedalOverride.objects.filter(user=user, scope_key='')}
     by_level = {}
@@ -938,12 +774,9 @@ def evaluate_pb(user, state=None, levels=None):
     for level, level_definitions in by_level.items():
         if levels is not None and level not in levels:
             continue
-        if levels is None and not _level_needs_aggregate(user, level, level_definitions, progress, grants, overrides):
-            continue
         stats = _aggregate_level(user, level)
-        best = _best_videos_for_level(user, level, level_definitions, stats)
         for definition in level_definitions:
-            _apply_pb(user, definition, stats, progress.get(definition.code), grants.get(definition.code), best.get(definition.code), state, (definition.code, '') in overrides)
+            _apply_pb(user, definition, stats, progress.get(definition.code), grants.get(definition.code), state, (definition.code, '') in overrides)
 
 
 def _mode_list(definition):
@@ -1073,7 +906,7 @@ def _write_once(user, definition, met, state=None):
 def evaluate_once(user, state=None):
     """实名、过审、全级别、全模式，以及扫雷网已验证。其他平台这一步不发。"""
     codes = [NOVICE_REALNAME, NOVICE_REVIEW, NOVICE_LEVELS, NOVICE_LEVELS_NF, NOVICE_MODES, NOVICE_SAOLEI]
-    definitions = {item.code: item for item in MedalDefinition.objects.filter(active=True, kind=KIND_ONCE, code__in=codes)}
+    definitions = {row.code: row for row in state.definitions_of(KIND_ONCE)} if state is not None else {item.code: item for item in MedalDefinition.objects.filter(active=True, kind=KIND_ONCE, code__in=codes)}
     for code in codes:
         definition = definitions.get(code)
         if definition is None:
@@ -1082,26 +915,22 @@ def evaluate_once(user, state=None):
 
 
 def evaluate_composite(user, state=None):
-    """三阶的档位只读三个难度的进度；最早达标证据由发布前的历史校正统一查找。"""
-    definitions = list(MedalDefinition.objects.filter(active=True, kind=KIND_COMPOSITE, metric='thrp'))
+    """三阶档位读取自然进度，授予时查找三个难度各自最早达标的证据。"""
+    definitions = [row for row in state.definitions_of(KIND_COMPOSITE) if row.metric == 'thrp'] if state is not None else list(MedalDefinition.objects.filter(active=True, kind=KIND_COMPOSITE, metric='thrp'))
     if not definitions:
         return
     codes = [code for definition in definitions for code in (definition.depends_on or [])]
-    progress = state.progress if state is not None else {row.code: row for row in PlayerProgress.objects.filter(user=user, code__in=codes).select_related('best_video')}
+    progress = state.progress if state is not None else {row.code: row for row in PlayerProgress.objects.filter(user=user, code__in=codes)}
+    dependencies = state.definitions if state is not None else {row.code: row for row in MedalDefinition.objects.filter(active=True, code__in=codes)}
+    memo = {}
     for definition in definitions:
         depended = list(definition.depends_on or [])
         if len(depended) < 3:
             continue
         stages = []
-        video_ids = []
-        uploaded = []
         for code in depended:
             row = progress.get(code)
             stages.append(0 if row is None else row.current_stage)
-            if row is not None and row.best_video_id:
-                video_ids.append(row.best_video_id)
-                if row.best_video is not None:
-                    uploaded.append(row.best_video.upload_time)
         stage = reached_asc_stage(definition.thresholds, min(stages) if stages else 0)
         grant = state.grants.get(definition.code) if state is not None else MedalGrant.objects.filter(user=user, definition_code=definition.code, scope_key='').first()
         if stage <= 0:
@@ -1114,9 +943,12 @@ def evaluate_composite(user, state=None):
         if grant is not None and grant.revoked_at is None and grant.stage == stage:
             write_stage(user, definition, stage=stage, current_value=stage, keep_evidence=True, state=state)
             continue
+        videos = _history_videos(user, definition, stage, dependencies, memo)
+        if not videos:
+            continue
         write_stage(
             user, definition, stage=stage, current_value=stage,
-            granted_at=max(uploaded) if uploaded else None, evidence={'video_ids': video_ids}, keep_evidence=False, state=state,
+            granted_at=_completing_video(videos).upload_time, evidence={'video_ids': [video.id for video in videos]}, keep_evidence=False, state=state,
         )
 
 
@@ -1237,7 +1069,7 @@ def _sync_video_history(user, definition, grant, definitions, memo):
 
 def _refresh_video_history(user, state, video_ids=None, videos=None):
     """在发布摘要之前修正录像派生的时间、证据和日志；人工锁定始终优先。"""
-    definitions = {item.code: item for item in MedalDefinition.objects.filter(active=True)}
+    definitions = state.definitions
     memo = {}
     for code, grant in state.grants.items():
         definition = definitions.get(code)
@@ -1256,31 +1088,6 @@ def _refresh_video_history(user, state, video_ids=None, videos=None):
         _sync_video_history(user, definition, grant, definitions, memo)
 
 
-def _state_index(payload):
-    rows = {}
-    for item in (payload or {}).get('grants') or []:
-        rows[(item.get('code'), item.get('scope') or '')] = item
-    return rows
-
-
-def _is_better(definition, new_value, old_value):
-    if new_value is None:
-        return False
-    if old_value is None:
-        return True
-    if definition.metric == 'timems' or definition.direction == DIRECTION_DESC:
-        return new_value < old_value
-    return new_value > old_value
-
-
-def _is_worse(definition, new_value, old_value):
-    if new_value is None or old_value is None:
-        return False
-    if definition.metric == 'timems' or definition.direction == DIRECTION_DESC:
-        return new_value > old_value
-    return new_value < old_value
-
-
 def _clean_id_list(values):
     if not values:
         return []
@@ -1294,13 +1101,8 @@ def _clean_id_list(values):
     return result
 
 
-def _record_value(definition, video):
-    return _units_of(definition, _raw_value(video, definition))
-
-
-def _apply_recorded_video(user, definition, video, units, new_stage, old_stage, state):
-    """严格更好或第一次过档时更新最佳；升档证据在发布前统一校正为最早达标录像。"""
-    # 时间档的阈值数字越小越高，要用档位序号而不是阈值本身比高低。
+def _apply_shareholder_video(user, definition, video, units, new_stage, old_stage, state):
+    """原始股东保留最小录像 ID 作为进度；升档证据在发布前校正为最早达标录像。"""
     old_rank = threshold_index(definition.thresholds, old_stage)
     new_rank = threshold_index(definition.thresholds, new_stage)
     if new_rank > old_rank and new_stage > 0:
@@ -1312,21 +1114,9 @@ def _apply_recorded_video(user, definition, video, units, new_stage, old_stage, 
 
 
 def _invalidated_levels(user, state, by_code, video_ids, found_by_id):
-    """当前最佳变差、退审或换走玩家时，只记下受影响的难度。已删除的录像要靠任务里的难度。"""
+    """证据退审或不再达标时重算受影响的难度，不依赖另一条最佳录像。"""
     watched = set(video_ids)
     levels = set()
-    for progress in state.progress.values():
-        if progress.best_video_id not in watched:
-            continue
-        definition = by_code.get(progress.code)
-        if definition is None:
-            continue
-        video = found_by_id.get(progress.best_video_id)
-        qualified = video is not None and video.player_id == user.id and _video_qualifies(video, definition, user.id)
-        units = None if not qualified else _record_value(definition, video)
-        worse = qualified and _is_worse(definition, units, progress.current_value)
-        if not qualified or worse:
-            levels.add(definition.level)
     for grant in state.grants.values():
         if grant.revoked_at is not None or grant.video_id not in watched:
             continue
@@ -1344,12 +1134,12 @@ def _invalidated_levels(user, state, by_code, video_ids, found_by_id):
     return levels
 
 
-def _refresh_shareholder(user, state, cached, video_ids, found):
-    row = cached.get((SHAREHOLDER_CODE, ''))
+def _refresh_shareholder(user, state, video_ids, found):
+    row = state.progress.get(SHAREHOLDER_CODE)
     override = state.overrides.get((SHAREHOLDER_CODE, ''))
-    if (row and row.get('locked')) or (override is not None and override.mode == 'revoke'):
+    if override is not None and override.mode == 'revoke':
         return
-    stored = None if row is None else row.get('value')
+    stored = None if row is None else row.current_value
     found_by_id = {video.id: video for video in found}
     missing = [video_id for video_id in video_ids if video_id not in found_by_id]
     left_player = [video for video in found if video.player_id != user.id and stored is not None and video.id == stored]
@@ -1362,48 +1152,41 @@ def _refresh_shareholder(user, state, cached, video_ids, found):
     best = min(candidates, key=lambda video: video.id)
     if stored is not None and best.id >= stored:
         return
-    definition = MedalDefinition.objects.filter(pk=SHAREHOLDER_CODE, active=True).first()
+    definition = state.definitions.get(SHAREHOLDER_CODE)
     if definition is None:
         return
-    old_stage = 0 if row is None else (row.get('stage') or 0)
+    old_stage = 0 if row is None else row.current_stage
     stage = reached_desc_stage(definition.thresholds, best.id)
-    _apply_recorded_video(user, definition, best, best.id, stage, old_stage, state)
+    _apply_shareholder_video(user, definition, best, best.id, stage, old_stage, state)
 
 
-def _best_touched_video(definition, videos, user_id):
+def _highest_touched_stage(definition, videos, user_id):
     chosen = None
-    chosen_units = None
+    stage = 0
     for video in videos:
-        if video.player_id != user_id or not _video_qualifies(video, definition, user_id):
+        if not _video_qualifies(video, definition, user_id):
             continue
-        units = _record_value(definition, video)
-        if units is None:
-            continue
-        if chosen_units is None or _is_better(definition, units, chosen_units):
-            chosen = video
-            chosen_units = units
-    return chosen, chosen_units
+        candidate = _stage_of(definition, _raw_value(video, definition))
+        if threshold_index(definition.thresholds, candidate) > threshold_index(definition.thresholds, stage):
+            chosen, stage = video, candidate
+    return chosen, stage
 
 
-def _refresh_direct_pb(user, state, cached, definitions, videos, forced_levels):
-    revoked = {key for key, row in state.overrides.items() if row.mode == 'revoke'}
+def _refresh_direct_pb(user, state, definitions, videos, forced_levels):
     for definition in definitions:
         if definition.level in forced_levels:
             continue
-        if (definition.code, '') in revoked or (cached.get((definition.code, '')) or {}).get('locked'):
-            continue
-        video, units = _best_touched_video(definition, videos, user.id)
+        video, new_stage = _highest_touched_stage(definition, videos, user.id)
         if video is None:
             continue
-        row = cached.get((definition.code, ''))
-        old_stage = 0 if row is None else (row.get('stage') or 0)
-        old_value = None if row is None else row.get('value')
-        new_stage = _stage_of(definition, _raw_value(video, definition))
-        better = _is_better(definition, units, old_value)
-        first_cross = threshold_index(definition.thresholds, old_stage) < 0 and threshold_index(definition.thresholds, new_stage) >= 0
-        if not better and not first_cross:
+        progress = state.progress.get(definition.code)
+        old_stage = 0 if progress is None else progress.current_stage
+        if threshold_index(definition.thresholds, new_stage) <= threshold_index(definition.thresholds, old_stage):
             continue
-        _apply_recorded_video(user, definition, video, units, new_stage, old_stage, state)
+        write_stage(
+            user, definition, stage=new_stage, video=video, granted_at=video.upload_time,
+            evidence={'video_id': video.id}, keep_evidence=False, state=state,
+        )
 
 
 def _video_touches_novice(code, video, user_id):
@@ -1424,22 +1207,22 @@ def _mode_list_open():
     return set(open_modes())
 
 
-def _merge_novice_set(code, cached_row, videos, user_id, needed_modes):
-    """用这次碰到的过审录像并进 Redis 里的级别 / 模式集合。"""
+def _merge_novice_set(code, extra, videos, user_id, needed_modes):
+    """用这次碰到的过审录像并进已加载的数据库级别 / 模式集合。"""
     if code == NOVICE_LEVELS:
-        found = set(cached_row.get('levels') or [])
+        found = set(_set_from_extra(extra, 'levels'))
         for video in videos:
             if _video_touches_novice(code, video, user_id):
                 found.add(str(video.level))
         return 'levels', sorted(found), _covers(found, STANDARD_LEVELS)
     if code == NOVICE_LEVELS_NF:
-        found = set(cached_row.get('levels') or [])
+        found = set(_set_from_extra(extra, 'levels'))
         for video in videos:
             if _video_touches_novice(code, video, user_id):
                 found.add(str(video.level))
         return 'levels', sorted(found), _covers(found, STANDARD_LEVELS)
     if code == NOVICE_MODES:
-        found = set(cached_row.get('modes') or [])
+        found = set(_set_from_extra(extra, 'modes'))
         for video in videos:
             if _video_touches_novice(code, video, user_id):
                 found.add(str(video.mode))
@@ -1447,22 +1230,21 @@ def _merge_novice_set(code, cached_row, videos, user_id, needed_modes):
     return None, [], False
 
 
-def _refresh_novice(user, state, cached, videos, invalidate_once):
+def _refresh_novice(user, state, videos, invalidate_once):
     """已经授予的跳过。未授予时用状态里的级别 / 模式集合并集；凑齐才查一次证据。"""
     codes = (NOVICE_REVIEW, NOVICE_LEVELS, NOVICE_LEVELS_NF, NOVICE_MODES)
     revoked = {key for key, row in state.overrides.items() if row.mode == 'revoke'}
-    definitions = {
-        item.code: item for item in MedalDefinition.objects.filter(active=True, kind=KIND_ONCE, code__in=codes)
-    }
+    definitions = {row.code: row for row in state.definitions_of(KIND_ONCE)}
     for code in codes:
-        if (code, '') in revoked or (cached.get((code, '')) or {}).get('locked'):
+        if (code, '') in revoked:
             continue
         definition = definitions.get(code)
         if definition is None:
             continue
-        row = cached.get((code, '')) or {}
+        progress = state.progress.get(code)
+        extra = progress.extra if progress is not None and isinstance(progress.extra, dict) else {}
         grant = state.grants.get(code)
-        granted = (row.get('stage') or 0) > 0 or (grant is not None and grant.revoked_at is None and grant.stage > 0)
+        granted = grant is not None and grant.revoked_at is None and grant.stage > 0
         if granted and not invalidate_once:
             continue
         if invalidate_once:
@@ -1480,35 +1262,34 @@ def _refresh_novice(user, state, cached, videos, invalidate_once):
             )
             continue
         set_key = 'modes' if code == NOVICE_MODES else 'levels'
-        # 旧状态没有集合字段时并集会丢历史；先查一次库写回，之后再走并集。
-        if set_key not in row:
+        # 旧数据库进度没有集合字段时补齐历史，缓存内容不参与计算。
+        if set_key not in extra:
             _write_once(user, definition, _once_satisfied(user, definition), state)
             continue
-        key, values, complete = _merge_novice_set(code, row, videos, user.id, _mode_list(definition))
+        key, values, complete = _merge_novice_set(code, extra, videos, user.id, _mode_list(definition))
         if key is None:
             continue
         if complete:
             _write_once(user, definition, True, state)
             continue
-        previous = list(row.get(key) or [])
+        previous = _set_from_extra(extra, key)
         if values != previous or state.progress.get(code) is None:
             _save_progress(user, definition, 0, 0, {key: values}, None, state)
 
 
-def _refresh_incremental(user, payload, video_ids, degrade_levels, invalidate_once):
+def _refresh_incremental(user, video_ids, degrade_levels, invalidate_once):
     found = list(VideoModel.objects.filter(pk__in=video_ids))
     found_by_id = {video.id: video for video in found}
     state = _EvaluationState(user)
-    cached = _state_index(payload)
-    definitions = list(MedalDefinition.objects.filter(active=True, kind=KIND_PB, metric__in=['timems', 'bvs', 'stnb', 'thrp'], level__in=STANDARD_LEVELS))
+    definitions = [row for row in state.definitions_of(KIND_PB) if row.metric in ('timems', 'bvs', 'stnb', 'thrp') and row.level in STANDARD_LEVELS]
     by_code = {item.code: item for item in definitions}
     forced = set(degrade_levels)
     forced.update(_invalidated_levels(user, state, by_code, video_ids, found_by_id))
-    _refresh_shareholder(user, state, cached, video_ids, found)
-    _refresh_direct_pb(user, state, cached, definitions, found, forced)
+    _refresh_shareholder(user, state, video_ids, found)
+    _refresh_direct_pb(user, state, definitions, found, forced)
     if forced:
         evaluate_pb(user, state, levels=forced)
-    _refresh_novice(user, state, cached, found, invalidate_once)
+    _refresh_novice(user, state, found, invalidate_once)
     evaluate_composite(user, state)
     _refresh_video_history(user, state, video_ids=video_ids, videos=found)
     state.flush()
@@ -1517,18 +1298,17 @@ def _refresh_incremental(user, payload, video_ids, degrade_levels, invalidate_on
 
 @transaction.atomic
 def refresh_player_medals(user_id, video_ids=None, degrade_levels=None, invalidate_once=False, full=False):
-    """没有状态键、没有 MedalScan，或这次是全量触发时走 evaluate_player。否则只比较碰到的录像。"""
+    """是否首次评估只读 MedalScan；增量计算复用数据库状态，与展示缓存无关。"""
     user = _lock_summary_user(user_id)
     if user is None:
         return
     ids = _clean_id_list(video_ids)
     levels = [level for level in dict.fromkeys(degrade_levels or []) if level]
     scanned = getattr(user, 'medal_scan', None) is not None
-    payload = read_player_state(user.id) if scanned and not full else None
-    if payload is None or not (ids or levels or invalidate_once):
+    if full or not scanned or not (ids or levels or invalidate_once):
         _evaluate_locked(user)
         return
-    _refresh_incremental(user, payload, ids, levels, bool(invalidate_once))
+    _refresh_incremental(user, ids, levels, bool(invalidate_once))
 
 
 def revoke_manual(actor, grant_id, reason):

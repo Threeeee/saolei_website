@@ -6,6 +6,7 @@ import PlayerName from './PlayerName.vue';
 import $axios from '@/http';
 import i18n from '@/i18n';
 import { getDatabase, USER_INFO_STORE_NAME } from '@/services/database';
+import { syncMedalsAfterUpload } from '@/services/medalService';
 import { serviceConfig } from '@/services/store';
 import { local } from '@/store/local';
 import { hashRouter, installHashHistoryCleanup } from '@cy/support/hashHistory';
@@ -226,5 +227,31 @@ describe('PlayerName', () => {
         cy.contains('a', player.username).realHover();
         cy.get('[id^=tippy-] img').should('be.visible').and('have.attr', 'src').and('include', 'breakthrough.webp');
         cy.get('@medalDetail.all').should('have.length', 0);
+    });
+
+    it('refreshes an already mounted name tooltip when upload processing finishes', () => {
+        const playerId = 790 + Cypress.currentRetry;
+        cy.mockPlayerNameFallback();
+        let stage = 4000;
+        cy.intercept('GET', '**/api/medal/players/state*', {
+            body: [{ user_id: playerId, grants: [{ code: 'ability.time.b', stage, timestamp: 1, scope: '', tournament: null, rank: null }] }],
+        }).as('beforeUploadState');
+        cy.intercept('GET', '**/api/medal/refresh-status', { body: { user_id: playerId, pending: false } }).as('refreshStatus');
+        mountPlayerName(playerId);
+        cy.wait('@beforeUploadState');
+        cy.get('.player-name').realHover();
+        cy.get('[id^=tippy-]').should('contain', '4');
+        cy.then(() => {
+            stage = 3000;
+        });
+        cy.intercept('GET', '**/api/medal/players/state*', (request) => {
+            request.reply({ body: [{ user_id: playerId, grants: [{ code: 'ability.time.b', stage, timestamp: 1, scope: '', tournament: null, rank: null }] }] });
+        }).as('afterUploadState');
+        cy.then(() => {
+            syncMedalsAfterUpload();
+        });
+        cy.wait('@refreshStatus');
+        cy.wait('@afterUploadState');
+        cy.get('[id^=tippy-]').should('contain', '3').and('not.contain', '4');
     });
 });

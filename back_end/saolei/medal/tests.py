@@ -14,7 +14,7 @@ from config.text_choices import MS_TextChoices
 from userprofile.models import UserProfile
 from videomanager.models import ExpandVideoModel, STNB_COEFFICIENTS, VideoModel
 from .models import MedalContribution, MedalDefinition, MedalGrant, MedalScan, PlayerProgress
-from .services import _aggregate_level, _best_videos_for_level, active_definitions, ensure_basic_definitions, ensure_shareholder_definition, evaluate_min_video_id, evaluate_player, player_summary, write_stage
+from .services import active_definitions, ensure_basic_definitions, ensure_shareholder_definition, evaluate_min_video_id, evaluate_player, player_summary, write_stage
 from .signals import enqueue_medal_refresh_on_video
 from .tasks import task_backfill_player_medals, task_refresh_player_medals
 from .utils import BVS_SCALE, DIRECTION_ASC, DIRECTION_DESC, KIND_MANUAL, KIND_ONCE, KIND_PB, MAX_PINS, NOVICE_LEVELS, NOVICE_LEVELS_NF, NOVICE_MODES, NOVICE_REALNAME, NOVICE_REVIEW, NOVICE_SAOLEI, open_modes, reached_asc_stage, REFRESH_COALESCE_DELAY, SHAREHOLDER_CODE, STANDARD_LEVELS, THRP_SCALE, to_units
@@ -70,7 +70,7 @@ class MedalShellTests(MedalShellFixture):
         self.assertEqual(same.id, first.id)
         self.assertEqual(same.evidence, {'video_id': 1})
         self.assertEqual(same.granted_at, self.granted_at)
-        self.assertEqual(PlayerProgress.objects.get(user=self.user, code=self.definition.code).current_value, 58000)
+        self.assertIsNone(PlayerProgress.objects.get(user=self.user, code=self.definition.code).current_value)
 
         higher_at = timezone.now() - timedelta(days=1)
         higher = write_stage(self.user, self.definition, stage=50000, current_value=49000, granted_at=higher_at, evidence={'video_id': 3})
@@ -403,7 +403,7 @@ class BasicMedalTests(MedalTestCase):
         self.assertIsNone(grant.revoked_at)
         self.assertEqual(grant.stage, 30000)
 
-    def test_pb_invalid_evidence_is_replaced_while_best_video_remains(self):
+    def test_pb_invalid_evidence_is_replaced_while_later_faster_video_remains(self):
         first = self.make_video(timems=19000, upload_time=self.earlier)
         evaluate_player(self.user.id)
         best = self.make_video(timems=16000, upload_time=self.middle)
@@ -417,7 +417,7 @@ class BasicMedalTests(MedalTestCase):
         self.assertIsNone(grant.revoked_at)
         self.assertEqual([entry['stage'] for entry in grant.stage_log], [20000])
 
-    def test_pb_deleted_evidence_is_replaced_while_best_video_remains(self):
+    def test_pb_deleted_evidence_is_replaced_while_later_faster_video_remains(self):
         first = self.make_video(timems=19000, upload_time=self.earlier)
         evaluate_player(self.user.id)
         best = self.make_video(timems=16000, upload_time=self.middle)
@@ -427,19 +427,6 @@ class BasicMedalTests(MedalTestCase):
         grant = self.active('ability.time.b')
         self.assertEqual(grant.video_id, best.id)
         self.assertEqual(grant.evidence['video_id'], best.id)
-
-    def test_level_best_videos_share_one_query_and_break_ties_by_upload(self):
-        later = self.make_video(timems=19000, upload_time=self.later)
-        first = self.make_video(timems=19000, upload_time=self.earlier)
-        ensure_basic_definitions()
-        definitions = list(MedalDefinition.objects.filter(kind=KIND_PB, level='b', active=True))
-        stats = _aggregate_level(self.user, 'b')
-        with self.assertNumQueries(1):
-            best = _best_videos_for_level(self.user, 'b', definitions, stats)
-        self.assertEqual(best['ability.time.b'].id, first.id)
-        self.assertEqual(best['ability.time.nf.b'].id, first.id)
-        self.assertEqual(best['ability.bvs.b'].id, first.id)
-        self.assertNotEqual(first.id, later.id)
 
     def test_unchanged_refresh_reuses_state_and_does_not_write(self):
         self.user.realname = '刷新测试'
@@ -500,8 +487,8 @@ class BasicMedalTests(MedalTestCase):
         self.assertEqual(grant.video_id, first.id)
         self.assertEqual([item['stage'] for item in grant.stage_log], [20000])
         progress = PlayerProgress.objects.get(user=self.user, code='ability.time.b')
-        self.assertEqual(progress.current_value, 16000)
-        self.assertEqual(progress.best_video_id, same.id)
+        self.assertIsNone(progress.current_value)
+        self.assertIsNone(progress.best_video_id)
         higher = self.make_video(timems=14000, upload_time=self.later)
         evaluate_player(self.user.id)
         grant.refresh_from_db()
@@ -535,7 +522,7 @@ class BasicMedalTests(MedalTestCase):
         self.assertEqual(grant.stage, 15000)
         self.assertEqual(grant.video_id, exact.id)
         self.assertEqual(grant.granted_at, slow.upload_time)
-        self.assertEqual(PlayerProgress.objects.get(user=self.user, code='ability.bvs.b').best_video_id, exact.id)
+        self.assertIsNone(PlayerProgress.objects.get(user=self.user, code='ability.bvs.b').best_video_id)
 
     def test_stnb_uses_videomanager_coefficient(self):
         below = self.make_video(bv=12, timems=10000, upload_time=self.earlier)

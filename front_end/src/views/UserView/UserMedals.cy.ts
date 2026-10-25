@@ -8,6 +8,7 @@ import UserMedalView from './UserMedalView.vue';
 import $axios from '@/http';
 import i18n from '@/i18n';
 import type { MedalItem, PlayerMedals } from '@/services/medalService';
+import { uploadVideoFile } from '@/services/videoUploadService';
 import { store } from '@/store';
 
 function summary(scanPending: boolean, series = '实名在册'): PlayerMedals {
@@ -70,6 +71,31 @@ function globalOptions(router = createProfileRouter()) {
 describe('player medal subscriptions', () => {
     afterEach(() => {
         store.player.id = 0;
+    });
+
+    it('updates an already open page and pins after upload processing without reloading', () => {
+        cy.clock();
+        const playerId = 8901 + Cypress.currentRetry;
+        store.player.id = playerId;
+        const get = cy.stub($axios, 'get');
+        get.onFirstCall().resolves({ data: summary(false) });
+        get.onSecondCall().resolves({ data: { user_id: playerId, pending: true } });
+        get.onThirdCall().resolves({ data: { user_id: playerId, pending: false } });
+        get.onCall(3).resolves({ data: summary(false, '录像过审') });
+        cy.stub($axios, 'post').resolves({ data: { type: 'success', data: { id: 123, state: 'c' } } });
+        cy.mount(defineComponent({
+            expose: [],
+            render: () => h('div', [h(ProfilePins, { userId: playerId }), h(UserMedalView)]),
+        }), { global: globalOptions() });
+        cy.get('.pins .series').should('have.text', 'Registered');
+        cy.then(() => uploadVideoFile(new File(['video'], 'test.avf')));
+        cy.tick(1000);
+        cy.get('.pins .series').should('have.text', 'Registered');
+        cy.tick(2000);
+        cy.get('.pins .series').should('have.text', 'Reviewed');
+        cy.get('.medal-page').should('contain', 'Reviewed');
+        cy.tick(300_000);
+        cy.then(() => expect(get.callCount).to.equal(4));
     });
 
     for (const outcome of ['resolve', 'reject'] as const) {

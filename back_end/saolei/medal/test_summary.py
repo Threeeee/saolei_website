@@ -33,7 +33,7 @@ class MedalSummaryTests(tests.MedalShellFixture):
         self.assertFalse(result['scan_pending'])
         self.assertEqual(result['score'], 5)
         self.assertEqual(result['pin_ids'], [grant.id])
-        self.assertEqual(result['pins'][0]['current_value'], 49000)
+        self.assertIsNone(result['pins'][0]['current_value'])
         with self.assertNumQueries(1):
             self.assertEqual(player_summary(self.user.id), result)
 

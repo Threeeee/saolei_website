@@ -13,9 +13,9 @@ from userprofile.models import UserProfile
 from videomanager.models import VideoModel
 from videomanager.services import set_import_upload_time
 from . import tests
-from .cache import read_player_state
-from .models import MedalDefinition, PlayerProgress
-from .services import player_summary, refresh_player_medals, set_player_override
+from .cache import delete_player_states, read_player_state
+from .models import MedalDefinition, PlayerMedalSummary, PlayerProgress
+from .services import ensure_basic_definitions, player_states, player_summary, refresh_player_medals, set_player_override
 from .tasks import task_refresh_player_medals
 from .utils import NOVICE_LEVELS, NOVICE_LEVELS_NF, NOVICE_MODES, NOVICE_REVIEW, SHAREHOLDER_CODE
 
@@ -53,6 +53,7 @@ class MedalVideoHistoryTests(tests.MedalTestCase):
         self.assertEqual(video.upload_time, at)
         queued = DBTaskResult.objects.get(task_path=task_refresh_player_medals.module_path)
         self.assertIn(video.id, queued.args_kwargs['kwargs']['video_ids'])
+        delete_player_states([self.user.id])
         with self.captureOnCommitCallbacks(execute=True):
             task_refresh_player_medals.call(*queued.args_kwargs['args'], **queued.args_kwargs['kwargs'])
 
@@ -69,20 +70,63 @@ class MedalVideoHistoryTests(tests.MedalTestCase):
         item = next(item for group in summary['series'] for item in group['items'] if item['code'] == code)
         self.assertEqual(item['granted_at'], grant.granted_at.isoformat())
         self.assertEqual(item['video_id'], grant.video_id)
-        cached = next(item for item in read_player_state(self.user.id)['grants'] if item['code'] == code)
+        cached = next(item for item in player_states([self.user.id])[0]['grants'] if item['code'] == code)
         self.assertEqual(cached['timestamp'], int(grant.granted_at.timestamp()))
         return grant
 
-    def test_backdated_same_stage_keeps_best_but_replaces_earliest_evidence(self):
-        best = self.make_video(timems=16000, upload_time=self.later)
+    def test_backdated_same_stage_replaces_earliest_evidence(self):
+        self.make_video(timems=16000, upload_time=self.later)
         self.scan()
         grant_id = self.active('ability.time.b').id
         older = self.make_video(timems=19000, upload_time=self.earlier)
+        delete_player_states([self.user.id])
         self.refresh(older)
         grant = self.assert_history('ability.time.b', [(20000, older)])
         self.assertEqual(grant.id, grant_id)
-        self.assertEqual(PlayerProgress.objects.get(user=self.user, code='ability.time.b').best_video_id, best.id)
+        self.assertIsNone(PlayerProgress.objects.get(user=self.user, code='ability.time.b').best_video_id)
         self.assert_history(NOVICE_REVIEW, [(1, older)])
+
+    def test_sub50_faster_same_stage_does_not_write_then_sub40_upgrades(self):
+        code = 'ability.time.e'
+        ensure_basic_definitions()
+        MedalDefinition.objects.exclude(code=code).update(active=False)
+        first = self.make_video(level='e', timems=48000, upload_time=self.earlier)
+        self.scan()
+        faster = self.make_video(level='e', timems=46000, upload_time=self.middle)
+        with patch('medal.services._aggregate_level') as aggregate, CaptureQueriesContext(connection) as captured:
+            self.refresh(faster)
+        aggregate.assert_not_called()
+        self.assertFalse(any(query['sql'].lstrip().upper().startswith(('INSERT ', 'UPDATE ', 'DELETE ')) for query in captured))
+        self.assert_history(code, [(50000, first)])
+        with CaptureQueriesContext(connection) as captured:
+            self.scan()
+        self.assertFalse(any(query['sql'].lstrip().upper().startswith(('INSERT ', 'UPDATE ', 'DELETE ')) for query in captured))
+        self.assert_history(code, [(50000, first)])
+        progress = PlayerProgress.objects.get(user=self.user, code=code)
+        self.assertIsNone(progress.current_value)
+        self.assertIsNone(progress.best_video_id)
+        self.assertEqual(progress.current_stage, 50000)
+        higher = self.make_video(level='e', timems=39000, upload_time=self.later)
+        self.refresh(higher)
+        self.assert_history(code, [(50000, first), (40000, higher)])
+
+    def test_legacy_best_is_hidden_and_cleared_without_replacing_evidence(self):
+        code = 'ability.time.b'
+        first = self.make_video(timems=19000, upload_time=self.earlier)
+        self.scan()
+        faster = self.make_video(timems=16000, upload_time=self.later)
+        PlayerProgress.objects.filter(user=self.user, code=code).update(current_value=16000, best_video=faster)
+        summary = PlayerMedalSummary.objects.get(user=self.user)
+        summary.data['progress'][code] = 16000
+        summary.save(update_fields=['data'])
+        item = next(item for group in player_summary(self.user.id)['series'] for item in group['items'] if item['code'] == code)
+        self.assertIsNone(item['current_value'])
+        self.refresh(faster)
+        self.assert_history(code, [(20000, first)])
+        progress = PlayerProgress.objects.get(user=self.user, code=code)
+        self.assertIsNone(progress.current_value)
+        self.assertIsNone(progress.best_video_id)
+        self.assertNotIn('value', next(row for row in read_player_state(self.user.id)['grants'] if row['code'] == code))
 
     def test_backdated_equal_score_and_timestamp_tie_use_stable_evidence(self):
         first = self.make_video(timems=19000, upload_time=self.later)
@@ -217,6 +261,7 @@ class MedalVideoHistoryTests(tests.MedalTestCase):
         self.make_video(level='e', upload_time=self.later)
         self.scan()
         older = self.make_video(level='e', upload_time=self.earlier)
+        delete_player_states([self.user.id])
         self.refresh(older)
         grant = self.assert_history('ability.thrp.nf.three', [(100000, older)])
         self.assertEqual(grant.evidence['video_ids'], [beginner.id, intermediate.id, older.id])
@@ -227,6 +272,7 @@ class MedalVideoHistoryTests(tests.MedalTestCase):
         smallest = self.make_video(video_id=2000, upload_time=self.later)
         self.scan()
         older = self.make_video(video_id=5000, upload_time=self.earlier)
+        delete_player_states([self.user.id])
         self.refresh(older)
         self.assert_history(SHAREHOLDER_CODE, [(10000, older)])
         self.assertEqual(PlayerProgress.objects.get(user=self.user, code=SHAREHOLDER_CODE).best_video_id, smallest.id)
