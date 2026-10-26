@@ -5,16 +5,14 @@ from unittest.mock import patch
 from django.db import close_old_connections, connection
 from django.test import override_settings, skipUnlessDBFeature, TransactionTestCase
 
-from . import cache, test_state_cache
+from . import cache
 from .models import MedalGrant
-from .services import _flush_player_state, refresh_player_medals, replace_pins
+from .services import _flush_player_states, refresh_player_medals, replace_pins
+from .test_state_cache import MedalStateFixture
 
 
 @override_settings(CACHES={'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache', 'LOCATION': 'medal-cache-concurrency'}})
-class MedalCacheConcurrencyTests(TransactionTestCase):
-    setUp = test_state_cache.MedalStateCacheTests.setUp
-    make_video = test_state_cache.MedalStateCacheTests.make_video
-
+class MedalCacheConcurrencyTests(MedalStateFixture, TransactionTestCase):
     @skipUnlessDBFeature('has_select_for_update')
     def test_cold_cache_fill_holds_player_lock_until_publication(self):
         self.make_video(timems=19000, upload_time=self.earlier)
@@ -39,7 +37,7 @@ class MedalCacheConcurrencyTests(TransactionTestCase):
         def cold_fill():
             close_old_connections()
             try:
-                _flush_player_state(self.user.id)
+                _flush_player_states([self.user.id])
             finally:
                 connection.close()
 

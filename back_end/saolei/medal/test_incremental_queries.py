@@ -8,10 +8,10 @@ from django.utils import timezone
 from tournament.models import Tournament, TournamentParticipant
 from userprofile.models import UserProfile
 from videomanager.models import VideoModel
-from . import test_state_cache
 from .cache import delete_player_states, read_player_state, write_player_state
 from .models import MedalGrant, MedalScan, PlayerMedalSummary, PlayerProgress
-from .services import _flush_player_state, player_states, refresh_player_medals, replace_pins, set_player_override
+from .services import _flush_player_states, player_states, refresh_player_medals, replace_pins, set_player_override
+from .test_state_cache import MedalStateFixture
 from .tests import MedalTestCase
 from .utils import NOVICE_MODES, SHAREHOLDER_CODE, STATE_CACHE_SECONDS
 
@@ -20,12 +20,7 @@ def selects(queries):
     return [query['sql'] for query in queries if query['sql'].lstrip().upper().startswith('SELECT ')]
 
 
-class MedalIncrementalQueryTests(MedalTestCase):
-    setUp = test_state_cache.MedalStateCacheTests.setUp
-    make_video = test_state_cache.MedalStateCacheTests.make_video
-    scan = test_state_cache.MedalStateCacheTests.scan
-    active = test_state_cache.MedalStateCacheTests.active
-
+class MedalIncrementalQueryTests(MedalStateFixture, MedalTestCase):
     def refresh(self, *videos):
         with self.captureOnCommitCallbacks(execute=True):
             refresh_player_medals(self.user.id, video_ids=[video.id for video in videos])
@@ -151,7 +146,7 @@ class MedalIncrementalQueryTests(MedalTestCase):
         self.prepare_unchanged()
         backend = caches['default']
         with patch.object(backend, 'set_many', return_value=['failed']) as publish:
-            _flush_player_state(self.user.id)
+            _flush_player_states([self.user.id])
         self.assertEqual(publish.call_args.kwargs['timeout'], STATE_CACHE_SECONDS)
         self.assertIsNone(read_player_state(self.user.id))
 

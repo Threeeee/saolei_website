@@ -16,7 +16,7 @@ from userprofile.models import UserProfile
 from videomanager.models import ExpandVideoModel, VideoModel
 from .cache import read_player_state, write_player_state
 from .models import MedalGrant, MedalScan, PlayerProgress
-from .services import _aggregate_level, _flush_player_state, player_summary, refresh_player_medals, set_player_override
+from .services import _aggregate_level, _flush_player_states, player_summary, refresh_player_medals, set_player_override
 from .tasks import enqueue_player_backfill, enqueue_player_refresh, player_refresh_pending, task_backfill_player_medals, task_refresh_player_medals
 from .tests import MedalTestCase
 from .utils import NOVICE_MODES, open_modes, REFRESH_COALESCE_DELAY
@@ -26,7 +26,7 @@ def _row(payload, code):
     return next(item for item in payload['grants'] if item['code'] == code)
 
 
-class MedalStateCacheTests(MedalTestCase):
+class MedalStateFixture:
     def setUp(self):
         caches['default'].clear()
         self.user = UserProfile.objects.create_user(username='medal_state', email='medal-state@example.com', password='password')
@@ -54,6 +54,8 @@ class MedalStateCacheTests(MedalTestCase):
     def active(self, code='ability.time.b'):
         return MedalGrant.objects.filter(user=self.user, definition_code=code, revoked_at__isnull=True).first()
 
+
+class MedalStateCacheTests(MedalStateFixture, MedalTestCase):
     def test_first_scan_and_missing_display_cache_keep_below_threshold_pb_ungranted(self):
         self.assertIsNone(read_player_state(self.user.id))
         with self.captureOnCommitCallbacks(execute=True):
@@ -249,7 +251,7 @@ class MedalStateCacheTests(MedalTestCase):
         self.wear(self.user, ['ability.time.b'])
         write_player_state(self.user.id, {'grants': []})
         self.assertEqual(read_player_state(self.user.id), {'grants': []})
-        _flush_player_state(self.user.id)
+        _flush_player_states([self.user.id])
         stored = read_player_state(self.user.id)
         self.assertEqual(_row(stored, 'ability.time.b')['stage'], 20000)
         self.assertNotIn('value', _row(stored, 'ability.time.b'))

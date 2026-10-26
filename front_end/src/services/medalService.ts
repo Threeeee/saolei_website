@@ -89,7 +89,6 @@ export function syncMedalsAfterUpload(): void {
                 schedule();
                 return;
             }
-            invalidatePlayerMedalState(data.user_id);
             refreshPlayerMedals(data.user_id);
             uploadSync = undefined;
         } catch {
@@ -192,6 +191,7 @@ export function subscribePlayerMedals(userId: number, receive: SummaryListener['
 }
 
 export function refreshPlayerMedals(userId: number): void {
+    invalidatePlayerMedalState(userId);
     const entry = entryFor(userId);
     stopPolling(entry);
     entry.version += 1;
@@ -302,30 +302,9 @@ export function fetchPlayerMedalState(userId: number): Promise<MedalStateRecord[
     return promise;
 }
 
-const medalSeriesKeys: Record<string, keyof typeof en.medal.series> = {
-    [MedalSeries.BREAKTHROUGH]: 'breakthrough',
-    [MedalSeries.SPEED]: 'speed',
-    [MedalSeries.MASTERY]: 'mastery',
-    [MedalSeries.FLAGLESS_BREAKTHROUGH]: 'flaglessBreakthrough',
-    [MedalSeries.FLAGLESS_SPEED]: 'flaglessSpeed',
-    [MedalSeries.FLAGLESS_MASTERY]: 'flaglessMastery',
-    [MedalSeries.FLAGLESS_PRECISION]: 'flaglessPrecision',
-    [MedalSeries.FLAGGED_PRECISION]: 'flaggedPrecision',
-    [MedalSeries.THREE_FLAGLESS_PRECISION]: 'threeTierFlaglessPrecision',
-    [MedalSeries.THREE_FLAGGED_PRECISION]: 'threeTierFlaggedPrecision',
-    [MedalSeries.REGISTERED]: 'registered',
-    [MedalSeries.REVIEWED]: 'reviewed',
-    [MedalSeries.LEVELS]: 'firstGlimpse',
-    [MedalSeries.LEVELS_NF]: 'anotherPath',
-    [MedalSeries.MODES]: 'grandTour',
-    [MedalSeries.SAOLEI]: 'oldTraces',
-    [MedalSeries.SHAREHOLDER]: 'shareholder',
-};
-
 export function medalSeriesLabel(series: string, locale: string): string {
-    const key = medalSeriesKeys[series];
-    if (!key) return series;
-    return (locale.startsWith('zh') ? zhCn.medal.series : en.medal.series)[key];
+    const labels = locale.startsWith('zh') ? zhCn.medal.series : en.medal.series;
+    return Object.hasOwn(labels, series) ? labels[series as MedalSeries] : series;
 }
 
 const timeSeries = new Set<string>([MedalSeries.BREAKTHROUGH, MedalSeries.FLAGLESS_BREAKTHROUGH]);
@@ -353,40 +332,6 @@ export function medalLevel(code: string): 'b' | 'i' | 'e' | '' {
     return '';
 }
 
-const medalMeaningKey = {
-    [MedalSeries.BREAKTHROUGH]: 'time',
-    [MedalSeries.FLAGLESS_BREAKTHROUGH]: 'timeNf',
-    [MedalSeries.SPEED]: 'speed',
-    [MedalSeries.FLAGLESS_SPEED]: 'speedNf',
-    [MedalSeries.MASTERY]: 'mastery',
-    [MedalSeries.FLAGLESS_MASTERY]: 'masteryNf',
-    [MedalSeries.FLAGLESS_PRECISION]: 'precisionNf',
-    [MedalSeries.FLAGGED_PRECISION]: 'precisionFl',
-    [MedalSeries.THREE_FLAGLESS_PRECISION]: 'threeNf',
-    [MedalSeries.THREE_FLAGGED_PRECISION]: 'threeFl',
-    [MedalSeries.REGISTERED]: 'registered',
-    [MedalSeries.REVIEWED]: 'reviewed',
-    [MedalSeries.LEVELS]: 'levels',
-    [MedalSeries.LEVELS_NF]: 'levelsNf',
-    [MedalSeries.MODES]: 'modes',
-    [MedalSeries.SAOLEI]: 'saolei',
-    [MedalSeries.SHAREHOLDER]: 'shareholder',
-} as const;
-
-const medalFlavorKey = {
-    [MedalSeries.REGISTERED]: 'registered',
-    [MedalSeries.REVIEWED]: 'reviewed',
-    [MedalSeries.LEVELS]: 'levels',
-    [MedalSeries.LEVELS_NF]: 'levelsNf',
-    [MedalSeries.MODES]: 'modes',
-    [MedalSeries.SAOLEI]: 'saolei',
-    [MedalSeries.SHAREHOLDER]: 'shareholder',
-} as const;
-
-function medalCopy(locale: string) {
-    return locale.startsWith('zh') ? zhCn.medal : en.medal;
-}
-
 function fillMedalText(template: string, values: Record<string, string>) {
     return template.replace(/\{(\w+)\}/g, (_, key: string) => values[key] ?? '');
 }
@@ -398,8 +343,8 @@ function medalPlainStage(series: string, stage: number | null) {
 }
 
 export function medalCaption(series: string, code: string, stage: number | null, locale: string): { title: string; meaning: string; flavor: string } {
-    const copy = medalCopy(locale);
     const chinese = locale.startsWith('zh');
+    const copy = chinese ? zhCn.medal : en.medal;
     const seriesName = medalSeriesLabel(series, locale);
     const stageName = medalStageLabel(series, stage);
     const levelCode = medalLevel(code);
@@ -412,12 +357,10 @@ export function medalCaption(series: string, code: string, stage: number | null,
         else title = `${level}${seriesName}·${stageName}`;
     }
     const values = { level, value: medalPlainStage(series, stage) };
-    const meaningKey = medalMeaningKey[series as keyof typeof medalMeaningKey];
-    const flavorKey = medalFlavorKey[series as keyof typeof medalFlavorKey];
     return {
         title,
-        meaning: meaningKey ? fillMedalText(copy.meaning[meaningKey], values) : '',
-        flavor: flavorKey ? copy.flavor[flavorKey] : '',
+        meaning: Object.hasOwn(copy.meaning, series) ? fillMedalText(copy.meaning[series as MedalSeries], values) : '',
+        flavor: Object.hasOwn(copy.flavor, series) ? copy.flavor[series as keyof typeof copy.flavor] : '',
     };
 }
 

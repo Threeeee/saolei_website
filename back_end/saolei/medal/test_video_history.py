@@ -13,8 +13,8 @@ from userprofile.models import UserProfile
 from videomanager.models import VideoModel
 from videomanager.services import set_import_upload_time
 from . import tests
-from .cache import delete_player_states, read_player_state
-from .models import MedalDefinition, PlayerMedalSummary, PlayerProgress
+from .cache import delete_player_states
+from .models import MedalDefinition, PlayerProgress
 from .services import ensure_basic_definitions, player_states, player_summary, refresh_player_medals, set_player_override
 from .tasks import task_refresh_player_medals
 from .utils import NOVICE_LEVELS, NOVICE_LEVELS_NF, NOVICE_MODES, NOVICE_REVIEW, SHAREHOLDER_CODE
@@ -110,24 +110,6 @@ class MedalVideoHistoryTests(tests.MedalTestCase):
         higher = self.make_video(level='e', timems=39000, upload_time=self.later)
         self.refresh(higher)
         self.assert_history(code, [(50000, first), (40000, higher)])
-
-    def test_legacy_best_is_hidden_and_cleared_without_replacing_evidence(self):
-        code = 'ability.time.b'
-        first = self.make_video(timems=19000, upload_time=self.earlier)
-        self.scan()
-        faster = self.make_video(timems=16000, upload_time=self.later)
-        PlayerProgress.objects.filter(user=self.user, code=code).update(current_value=16000, best_video=faster)
-        summary = PlayerMedalSummary.objects.get(user=self.user)
-        summary.data['progress'][code] = 16000
-        summary.save(update_fields=['data'])
-        item = next(item for group in player_summary(self.user.id)['series'] for item in group['items'] if item['code'] == code)
-        self.assertIsNone(item['current_value'])
-        self.refresh(faster)
-        self.assert_history(code, [(20000, first)])
-        progress = PlayerProgress.objects.get(user=self.user, code=code)
-        self.assertIsNone(progress.current_value)
-        self.assertIsNone(progress.best_video_id)
-        self.assertNotIn('value', next(row for row in read_player_state(self.user.id)['grants'] if row['code'] == code))
 
     def test_backdated_equal_score_and_timestamp_tie_use_stable_evidence(self):
         first = self.make_video(timems=19000, upload_time=self.later)

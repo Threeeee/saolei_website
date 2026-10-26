@@ -55,16 +55,13 @@ def ensure_shareholder_definition():
 
 
 def ensure_basic_definitions():
-    """补上新手和能力定义。已经存在的阈值、名单和开关保持不动。系列名与当前常量不一致时改名。"""
+    """补上新手和能力定义，已有定义保持不动。"""
     specs = basic_definitions()
     codes = [item['code'] for item in specs]
-    existing = dict(MedalDefinition.objects.filter(code__in=codes).values_list('code', 'series'))
+    existing = set(MedalDefinition.objects.filter(code__in=codes).values_list('code', flat=True))
     missing = [item for item in specs if item['code'] not in existing]
     created = MedalDefinition.objects.bulk_create([MedalDefinition(**item) for item in missing]) if missing else []
-    renamed = [item for item in specs if item['code'] in existing and existing[item['code']] != item['series']]
-    for item in renamed:
-        MedalDefinition.objects.filter(code=item['code']).update(series=item['series'])
-    if created or renamed:
+    if created:
         invalidate_catalog()
     return created
 
@@ -127,17 +124,12 @@ class _EvaluationState:
 
     def __init__(self, user):
         self.definitions = {row.code: row for row in MedalDefinition.objects.filter(active=True)}
-        self.progress = {row.code: row for row in PlayerProgress.objects.filter(user=user).select_related('definition')}
+        self.progress = {row.code: row for row in PlayerProgress.objects.filter(user=user)}
         self.all_grants = {(row.definition_code, row.scope_key): row for row in MedalGrant.objects.filter(user=user).select_related('video', 'participant')}
         self.grants = {row.definition_code: row for row in self.all_grants.values() if not row.scope_key}
         self.overrides = {(row.definition_code, row.scope_key): row for row in MedalOverride.objects.filter(user=user)}
         self.changed = {}
         self.history_dirty = set()
-        for row in self.progress.values():
-            if row.definition.kind == Medal_TextChoices.Kind.PB and (row.current_value is not None or row.best_video_id is not None):
-                row.current_value = None
-                row.best_video = None
-                self.changed[row.code] = row
 
     def definitions_of(self, kind):
         return [row for row in self.definitions.values() if row.kind == kind]
@@ -266,10 +258,9 @@ def _write_stage(user, definition, scope_key, stage, current_value, granted_at, 
     if grant.revoked_at is not None or new_rank != old_rank or not keep_evidence:
         if state is not None:
             state.history_dirty.add(definition.code)
-        same_evidence = grant.revoked_at is None and new_rank == old_rank and keep_evidence
         return _apply_grant_fields(
             grant, stage, video, participant, evidence, logged_at,
-            append_log=not same_evidence and (grant.revoked_at is not None or new_rank != old_rank),
+            append_log=grant.revoked_at is not None or new_rank != old_rank,
             clear_revoke=grant.revoked_at is not None,
             reset_granted_at=isinstance(grant.evidence, dict) and grant.evidence.get('override') is True,
         )
@@ -382,14 +373,10 @@ def _flush_player_states(user_ids):
     return stored
 
 
-def _flush_player_state(user_id):
-    return _flush_player_states([user_id]).get(user_id)
-
-
 def _schedule_player_state(user):
     if getattr(user, 'medal_scan', None) is not None:
         user_id = user.pk
-        transaction.on_commit(lambda user_id=user_id: _flush_player_state(user_id), robust=True)
+        transaction.on_commit(lambda user_id=user_id: _flush_player_states([user_id]), robust=True)
 
 
 def _publish_summary(user, state=None):
@@ -1006,7 +993,7 @@ def _history_needs_refresh(user, definition, grant, definitions, video_ids, vide
     for entry in grant.stage_log or []:
         proof_ids.add(entry.get('evidence_id'))
         proof_ids.update(entry.get('video_ids', []))
-        # 旧集合证据只有最后一条录像，先补齐整个证据集，之后才能捕捉任一分项改时。
+        # 集合证据必须覆盖所有分项，才能捕捉任一分项改时。
         if multiple and not entry.get('video_ids'):
             return True
         at = parse_datetime(entry.get('at', ''))
@@ -1279,7 +1266,7 @@ def _refresh_novice(user, state, videos, invalidate_once):
             )
             continue
         set_key = 'modes' if code == NOVICE_MODES else 'levels'
-        # 旧数据库进度没有集合字段时补齐历史，缓存内容不参与计算。
+        # 进度尚无集合字段时从数据库初始化，不能只合并当前录像。
         if set_key not in extra:
             _write_once(user, definition, _once_satisfied(user, definition), state)
             continue

@@ -60,7 +60,7 @@ class MedalShellFixture(MedalTestCase):
     def setUp(self):
         self.user = UserProfile.objects.create_user(username='medal_user', email='medal-user@example.com', password='password')
         self.definition = MedalDefinition.objects.create(
-            code='ability.time.b', series='能力', subseries='破限', kind=Medal_TextChoices.Kind.PB, metric='timems',
+            code='ability.time.b', series=Medal_TextChoices.Series.BREAKTHROUGH, subseries='破限', kind=Medal_TextChoices.Kind.PB, metric='timems',
             direction=Medal_TextChoices.Direction.DESC, level='b', thresholds=[60000, 50000, 20000], score_by_stage=[3, 5, 8], active=True,
         )
         self.granted_at = timezone.now() - timedelta(days=3)
@@ -220,7 +220,7 @@ class MedalShellTests(MedalShellFixture):
     def test_pins_belong_to_the_owner_and_keep_order(self):
         other = UserProfile.objects.create_user(username='medal_other', email='medal-other@example.com', password='password')
         second = MedalDefinition.objects.create(
-            code='ability.bvs.b', series='能力', subseries='神速', kind=Medal_TextChoices.Kind.PB, metric='bvs', direction=Medal_TextChoices.Direction.ASC, thresholds=[10000], active=True,
+            code='ability.bvs.b', series=Medal_TextChoices.Series.SPEED, subseries='神速', kind=Medal_TextChoices.Kind.PB, metric='bvs', direction=Medal_TextChoices.Direction.ASC, thresholds=[10000], active=True,
         )
         own = write_stage(self.user, self.definition, stage=60000, current_value=59000, granted_at=self.granted_at)
         other_grant = write_stage(other, second, stage=10000, current_value=10000, granted_at=self.granted_at)
@@ -508,12 +508,15 @@ class BasicMedalTests(MedalTestCase):
         self.assertEqual(definition.score_by_stage, [])
         self.assertIsNone(definition.bv_min)
         definition.thresholds = [1]
-        definition.series = '无旗神速'
-        definition.save(update_fields=['thresholds', 'series'])
+        definition.active = False
+        definition.hidden = True
+        definition.save(update_fields=['thresholds', 'active', 'hidden'])
         ensure_basic_definitions()
         kept = MedalDefinition.objects.get(code='ability.bvs.b')
         self.assertEqual(kept.thresholds, [1])
         self.assertEqual(kept.series, Medal_TextChoices.Series.SPEED)
+        self.assertFalse(kept.active)
+        self.assertTrue(kept.hidden)
         self.assertTrue(any(index.name == 'video_player_state_level_idx' for index in VideoModel._meta.indexes))
 
     def test_time_upgrades_keeps_evidence_then_drops(self):

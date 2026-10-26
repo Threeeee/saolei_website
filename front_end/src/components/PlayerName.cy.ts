@@ -7,6 +7,7 @@ import $axios from '@/http';
 import i18n from '@/i18n';
 import { getDatabase, USER_INFO_STORE_NAME } from '@/services/database';
 import { syncMedalsAfterUpload } from '@/services/medalService';
+import { setMedalOverride } from '@/services/staffMedalService';
 import { serviceConfig } from '@/services/store';
 import { local } from '@/store/local';
 import { hashRouter, installHashHistoryCleanup } from '@cy/support/hashHistory';
@@ -230,6 +231,27 @@ describe('PlayerName', () => {
         cy.get('[id^=tippy-] img').realHover();
         cy.get('[id^=tippy-]').should('contain', 'Expert Breakthrough · Sub30').and('contain', 'Expert best time reached 30s.');
         cy.get('@medalDetail.all').should('have.length', 0);
+    });
+
+    it('removes a revoked shareholder medal from an already mounted name tooltip', () => {
+        const playerId = 142 + Cypress.currentRetry;
+        let revoked = false;
+        cy.intercept('GET', '**/api/userprofile/infobulk*', { body: [{ ...user, id: playerId }] });
+        cy.intercept('GET', '**/api/medal/players/state*', (request) => {
+            request.reply({ body: [{ user_id: playerId, grants: revoked ? [] : [{ code: 'shareholder.origin', stage: 1000, timestamp: 1, scope: '', tournament: null, rank: null }] }] });
+        }).as('shareholderState');
+        cy.intercept('POST', '**/api/medal/staff/overrides', (request) => {
+            revoked = true;
+            request.reply({ body: { grant_id: 49, mode: 'revoke', enqueued: false } });
+        }).as('revokeShareholder');
+        mountPlayerName(playerId);
+        cy.get('.player-name').realHover();
+        cy.wait('@shareholderState');
+        cy.get('.player-name-medals:visible .medal-hit').should('have.length', 1);
+        cy.then(() => setMedalOverride({ user_id: playerId, code: 'shareholder.origin', scope_key: '', mode: 'revoke', reason: 'Revoke test' }));
+        cy.wait('@revokeShareholder');
+        cy.wait('@shareholderState');
+        cy.get('.player-name-medals:visible').should('not.exist');
     });
 
     it('refreshes an already mounted name tooltip when upload processing finishes', () => {

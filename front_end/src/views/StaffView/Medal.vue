@@ -219,7 +219,6 @@ async function save() {
     notice.value = '';
     try {
         const result = await setMedalOverride(submitted);
-        refreshPlayerMedals(submitted.user_id);
         if (request !== playerRequest || !isStaff.value || !viewing.value || userId.value !== submitted.user_id) return;
         notice.value = t(result.enqueued ? 'local.queued' : 'local.saved');
         reason.value = '';

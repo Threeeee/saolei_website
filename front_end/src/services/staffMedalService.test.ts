@@ -5,8 +5,9 @@ import { fetchStaffMedalCatalog, fetchStaffPlayerMedals, setMedalOverride, staff
 
 import { MedalDirection, MedalKind, MedalSeries } from '@/utils/medal_const';
 
-const { get, post } = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }));
+const { get, post, refreshPlayerMedals } = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), refreshPlayerMedals: vi.fn() }));
 vi.mock('@/http', () => ({ default: { get, post } }));
+vi.mock('./medalService', () => ({ refreshPlayerMedals }));
 
 const definition: StaffMedalDefinition = {
     code: 'time.b',
@@ -87,6 +88,8 @@ describe('staff medal management', () => {
         post.mockResolvedValue({ data: result });
         expect(await setMedalOverride(input)).toEqual(result);
         expect(post).toHaveBeenCalledWith('/api/medal/staff/overrides', JSON.stringify(input));
+        expect(refreshPlayerMedals).toHaveBeenCalledOnce();
+        expect(refreshPlayerMedals).toHaveBeenCalledWith(input.user_id);
     });
 
     it('does not add grant-only fields to a restore-automatic request', async () => {
@@ -94,5 +97,18 @@ describe('staff medal management', () => {
         post.mockResolvedValue({ data: { grant_id: null, mode: 'auto', enqueued: true } });
         expect((await setMedalOverride(automatic)).enqueued).toBe(true);
         expect(post).toHaveBeenCalledWith('/api/medal/staff/overrides', JSON.stringify(automatic));
+        expect(refreshPlayerMedals).toHaveBeenCalledWith(automatic.user_id);
+    });
+
+    it('refreshes the affected player after a successful revoke and preserves caches when saving fails', async () => {
+        const revoke: MedalOverrideInput = { user_id: 3, code: 'shareholder.origin', scope_key: '', mode: 'revoke', reason: 'Test revoke' };
+        post.mockResolvedValueOnce({ data: { grant_id: 49, mode: 'revoke', enqueued: false } });
+        await setMedalOverride(revoke);
+        expect(refreshPlayerMedals).toHaveBeenCalledOnce();
+        expect(refreshPlayerMedals).toHaveBeenCalledWith(3);
+        refreshPlayerMedals.mockClear();
+        post.mockRejectedValueOnce(new Error('Save failed'));
+        await expect(setMedalOverride(revoke)).rejects.toThrow('Save failed');
+        expect(refreshPlayerMedals).not.toHaveBeenCalled();
     });
 });

@@ -22,7 +22,6 @@ const route = useRoute();
 const router = useRouter();
 
 const tabItems = [
-    { name: 'medals' },
     { name: 'userprofile' },
     { name: 'videomodel' },
     { name: 'accountlink' },
@@ -34,6 +33,7 @@ const tabItems = [
     { name: 'batchvideo' },
     { name: 'batchpluck' },
     { name: 'ranking-repair' },
+    { name: 'medals' },
 ] as const;
 const validTabs = tabItems.map((item) => item.name);
 const visibleTabs = computed(() => tabItems.filter((item) => item.name !== 'medals' || store.user.is_staff));

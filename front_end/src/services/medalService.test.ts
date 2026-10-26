@@ -29,6 +29,14 @@ function deferred() {
 }
 
 describe('shared medal image parts', () => {
+    it('preserves unknown series when looking up a localized name', async () => {
+        const { medalSeriesLabel } = await import('./medalService');
+        for (const series of ['unknown', '', 'constructor', '__proto__']) {
+            expect(medalSeriesLabel(series, 'en')).toBe(series);
+            expect(medalSeriesLabel(series, 'zh-cn')).toBe(series);
+        }
+    });
+
     it('has localized names and image mappings for every serialized series', async () => {
         const { medalArtUrl, medalSeriesLabel } = await import('./medalService');
         for (const series of Object.values(MedalSeries)) {
@@ -263,6 +271,27 @@ describe('player medal state for name hover', () => {
         expect(axiosGet).not.toHaveBeenCalled();
     });
 
+    it('invalidates the affected hover cache on a medal refresh without touching other players or polling', async () => {
+        const fetchPlayerMedalState = await loadMedalState();
+        const { cachedPlayerMedalState, medalStateVersions, refreshPlayerMedals } = await import('./medalService');
+        const shareholder = stateRecord({ code: 'shareholder.origin', stage: 1000 });
+        axiosGet.mockResolvedValueOnce({ data: [{ user_id: 3, grants: [shareholder] }, { user_id: 4, grants: [shareholder] }] });
+        const initial = Promise.all([fetchPlayerMedalState(3), fetchPlayerMedalState(4)]);
+        await waitForMedalStateBatch();
+        await initial;
+        refreshPlayerMedals(3);
+        expect(cachedPlayerMedalState(3)).toBeUndefined();
+        expect(cachedPlayerMedalState(4)).toEqual([shareholder]);
+        expect(medalStateVersions[3]).toBe(1);
+        expect(axiosGet).toHaveBeenCalledTimes(1);
+        axiosGet.mockResolvedValueOnce({ data: [{ user_id: 3, grants: [] }] });
+        const updated = fetchPlayerMedalState(3);
+        await waitForMedalStateBatch();
+        expect(await updated).toEqual([]);
+        expect(await fetchPlayerMedalState(4)).toEqual([shareholder]);
+        expect(axiosGet).toHaveBeenCalledTimes(2);
+    });
+
     it('batches ids into one state request and keeps the granted rows in memory', async () => {
         const fetchPlayerMedalState = await loadMedalState();
         const expert = stateRecord();
@@ -444,12 +473,31 @@ describe('bounded synchronization after uploads', () => {
 });
 
 describe('medalCaption', () => {
-    it.each([
-        [MedalSeries.THREE_FLAGLESS_PRECISION, 'ability.thrp.nf.three', 'Three-Tier Flagless Precision · 0.95'],
-        [MedalSeries.THREE_FLAGGED_PRECISION, 'ability.thrp.fl.three', 'Three-Tier Flagged Precision · 0.95'],
-    ])('formats three-tier series %s without adding a level', async (series, code, title) => {
+    it.each(['en', 'zh-cn'])('has an explanation for every series in %s without unresolved placeholders', async (locale) => {
         const { medalCaption } = await import('./medalService');
-        expect(medalCaption(series, code, 95000, 'en').title).toBe(title);
+        for (const series of Object.values(MedalSeries)) {
+            const caption = medalCaption(series, 'catalog.item.e', 95000, locale);
+            expect(caption.meaning).not.toBe('');
+            expect(caption.meaning).not.toMatch(/\{\w+\}/);
+        }
+    });
+
+    it.each(['en', 'zh-cn'])('has flavor text only for novice and shareholder medals in %s', async (locale) => {
+        const { medalCaption } = await import('./medalService');
+        expect(medalCaption(MedalSeries.REVIEWED, 'novice.review', 1, locale).flavor).not.toBe('');
+        expect(medalCaption(MedalSeries.SHAREHOLDER, 'shareholder.origin', 1000, locale).flavor).not.toBe('');
+        expect(medalCaption(MedalSeries.FLAGLESS_SPEED, 'ability.bvs.nf.b', 10000, locale).flavor).toBe('');
+        for (const series of ['unknown', 'constructor', '__proto__']) {
+            expect(medalCaption(series, '', null, locale)).toEqual({ title: series, meaning: '', flavor: '' });
+        }
+    });
+
+    it.each([
+        [MedalSeries.THREE_FLAGLESS_PRECISION, 'ability.thrp.nf.three', 'Three-Tier Flagless Precision · 0.95', 'no-flag thrp on all 3 levels reached 0.95.'],
+        [MedalSeries.THREE_FLAGGED_PRECISION, 'ability.thrp.fl.three', 'Three-Tier Flagged Precision · 0.95', 'Thrp on all 3 levels reached 0.95.'],
+    ])('formats three-tier series %s without adding a level', async (series, code, title, meaning) => {
+        const { medalCaption } = await import('./medalService');
+        expect(medalCaption(series, code, 95000, 'en')).toEqual({ title, meaning, flavor: '' });
     });
 
     it('names a worn ability medal from its code and stage', async () => {

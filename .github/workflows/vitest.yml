@@ -6,7 +6,6 @@ on:
       - main
   pull_request:
     paths:
-      - 'back_end/saolei/config/text_choices.py'
       - 'front_end/src/**/*.ts'
       - '!front_end/src/**/*.cy.ts'
       - 'front_end/package.json'

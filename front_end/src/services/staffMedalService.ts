@@ -1,3 +1,5 @@
+import { refreshPlayerMedals } from './medalService';
+
 import $axios from '@/http';
 import type { MedalDirection } from '@/utils/medal_const';
 import { MedalKind } from '@/utils/medal_const';
@@ -110,5 +112,6 @@ export async function fetchStaffPlayerMedals(userId: number): Promise<StaffPlaye
 export async function setMedalOverride(input: MedalOverrideInput): Promise<MedalOverrideResult> {
     // Match the existing medal API's cookie-compatible Content-Type handling.
     const { data } = await $axios.post<MedalOverrideResult>('/api/medal/staff/overrides', JSON.stringify(input));
+    refreshPlayerMedals(input.user_id);
     return data;
 }
