@@ -6,6 +6,11 @@
                     <strong>{{ t('local.links') }}</strong>
                 </div>
                 <div>
+                    <a class="link text" href="https://mineracer.com/" target="_blank" rel="noopener noreferrer">
+                        Mineracer
+                    </a>
+                </div>
+                <div>
                     <a class="link text" href="http://saolei.wang" target="_blank" rel="noopener noreferrer">
                         扫雷网 saolei.wang
                     </a>

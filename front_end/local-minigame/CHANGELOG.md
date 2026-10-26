@@ -1,9 +1,56 @@
 # 更新记录 / Changelog
 
-## 未发布 / Unreleased
+## 0.6.5 — 2026-10-25
 
-- 所有小游戏自动在 IndexedDB 保存成功成绩，按完成时间和用时建立索引；左键与标双仅保存初始棋盘及鼠标事件，读取回放时重建快照和统计；漏雷保留 10 局初始棋盘和用时，目标由棋盘编码还原。暂不提供历史可视化。
-- All minigames now save successful results in IndexedDB, indexed by completion time and score. Left-click and flag-and-chord games store only the initial board and mouse events, rebuilding snapshots and statistics for playback. Missing cell training stores its 10 initial boards and times, with targets encoded in the boards. History visualization is not available yet.
+- 左键和多指训练可设置雷格按下或弹起，默认弹起；共用本地设置，切换保留当前局，回放按当前设置显示。
+- Left-click and multi-touch training share a local setting for pressed or raised mine cells, defaulting to raised. Changing it keeps the current game; replays use the current display setting.
+
+## 0.6.4 — 2026-10-25
+
+- 多指训练的成功局自动保存本地历史，保留压缩回放，并支持按完成时间和成绩索引读取。
+- Successful multi-touch games now save local history with compressed replays, indexed by completion time and score.
+- 多指训练高级方向保存为本地显示设置，切换时保留当前局及回放；纵向通过交换横纵坐标显示，回放统一使用横向坐标。
+- Expert orientation in multi-touch training is saved as a local display setting. Switching preserves the current game and replay; vertical display swaps the axes while recordings retain horizontal coordinates.
+- 灵感来源补充扫雷联萌（League of Minesweeper）。
+- Added League of Minesweeper to the inspiration credits.
+
+## 0.6.3 — 2026-10-25
+
+- 多指训练全屏时移除棋盘内外边框及周围留白。
+- Fullscreen multi-touch training removes the inner and outer board frames and surrounding spacing.
+- 多指训练全屏时计数器只作显示，通过顶栏重开按钮开始新一局，避免误触。
+- Fullscreen counters are display-only; a restart button in the toolbar starts a new game to prevent accidental resets.
+- 格子大小改为直接输入正整数，所有小游戏共用并保存；多指训练全屏顶栏也可调整，取消自动缩放，调整尺寸时保留当前局。
+- Cell size accepts a positive integer shared and saved across all games. Multi-touch fullscreen also offers it in the toolbar, with automatic resizing removed; changing the size keeps the current game.
+
+## 0.6.2 — 2026-10-25
+
+- 多指训练取消按下预览，触摸和平移时仅显示实际棋盘状态。
+- Removed pressed-cell previews from multi-touch training; touching and panning display only the actual board state.
+
+## 0.6.1 — 2026-10-25
+
+- 多指训练支持单指滚动，多指按住时停止滚动；高级增加横向和纵向选项。新增全屏自适应棋盘，高级沿短边填满并允许沿长边滚动。
+- Multi-touch training supports one-finger scrolling, suspended while multiple fingers are held, and horizontal/vertical Expert layouts. Fullscreen fits the board automatically; Expert fills its short axis and scrolls along the long axis.
+
+## 0.6.0 — 2026-10-25
+
+- 新增多指训练，仅接受触屏，按下开格并开始计时，支持多个独立触点；沿用左键训练的棋盘参数、胜负规则和雷不透明度设置。左键训练改为仅接受鼠标。
+- 多指训练支持播放、暂停、拖动回放，独立显示各触点轨迹；测试期间仅保留本局回放，不保存本地历史。
+- Added touchscreen-only multi-touch training: touch down opens a cell and starts timing, with independent concurrent contacts. It shares left-click board settings, win/loss rules and mine opacity. Left-click training now accepts mouse input only.
+- Multi-touch games support replay playback, pausing and seeking with separate contact paths. During testing, replays remain in the current session without saving local history.
+
+## 0.5.1 — 2026-10-24
+
+- 修复旧录像格式转换失败时阻塞新成绩保存的问题：将原 JSON 整体压缩保留，继续升级其他记录；无法解析的回放仍报告损坏。
+- Fixed old replay conversion failures blocking new results: preserve the complete original JSON in 7z and continue upgrading other records. Unreadable replays still report parsing errors.
+
+## 0.5.0 — 2026-10-24
+
+- 历史录像格式升级时显示优化提示和进度，禁止通过 Escape 或遮罩关闭，完成或失败后自动关闭。
+- Historical replay upgrades now show an optimization notice and progress. Escape and backdrop dismissal are disabled; the notice closes automatically on completion or failure.
+- 所有小游戏自动在 IndexedDB 保存成功成绩，按完成时间和用时建立索引。回放使用 v1 紧凑格式并压缩为 7z 二进制，旧本地记录自动升级；左键与标双保存压缩棋盘和差分鼠标事件，读取时重建快照和统计；漏雷保留 10 局雷位、目标坐标和用时。暂不提供历史可视化。
+- All minigames now save successful results in IndexedDB, indexed by completion time and score. Replays use the compact v1 format stored as 7z binary, with automatic upgrades for older local records. Left-click and flag-and-chord games store compressed boards and delta-encoded mouse events, rebuilding snapshots and statistics for playback. Missing cell training stores its 10 mine layouts, target coordinates and times. History visualization is not available yet.
 - 标双训练固定为初级 8×8、4 题及中级 16×16、15 题，全部使用数字 1；移除高级、题数及数字比例配置。
 - Flag-and-chord training now uses 4 questions on Beginner 8×8 and 15 on Intermediate 16×16, all with the number 1. Removed Expert, custom question counts and number ratios.
 

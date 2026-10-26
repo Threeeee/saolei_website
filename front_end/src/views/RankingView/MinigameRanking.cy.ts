@@ -9,10 +9,11 @@ import i18n from '@/i18n';
 import type { MinigameRankingGroup } from '@/services/minigameRankingService';
 import { pinia } from '@/store/create';
 import { trainingGames } from '@/utils/minigame/games';
-import { leftClickModes } from '@/utils/minigame/leftClickTraining';
+import { leftClickModes, multiTouchModes } from '@/utils/minigame/leftClickTraining';
 
 const groups: MinigameRankingGroup[] = [
     { game: 'left-click', rankings: leftClickModes.map((mode) => ({ key: mode.rankingKey, game: 'left-click', level: mode.key, density: String(mode.density) as '50' | '75' | '87.5', order: 'asc', unit: 'ms', min_score: 1, max_score: Number.MAX_SAFE_INTEGER, accept_submissions: true })) },
+    { game: 'multi-touch', rankings: multiTouchModes.map((mode) => ({ key: mode.rankingKey, game: 'multi-touch', level: mode.key, density: String(mode.density) as '50' | '75' | '87.5', order: 'asc', unit: 'ms', min_score: 1, max_score: Number.MAX_SAFE_INTEGER, accept_submissions: true })) },
     ...(['flag-chord', 'missing-cell'] as const).map((game) => ({ game, rankings: (game === 'flag-chord' ? ['b', 'i'] as const : ['b', 'i', 'e'] as const).map((level) => ({ key: `${game}-${level}-v1`, game, level, density: null, order: 'asc' as const, unit: 'ms' as const, min_score: 1, max_score: Number.MAX_SAFE_INTEGER, accept_submissions: true })) })),
 ];
 
@@ -47,6 +48,8 @@ describe('minigame rankings', () => {
         cy.get('[data-cy=minigame-play-link]').should('have.attr', 'href', '/minigame/left-click');
         cy.get('.minigame-ranking-table tbody tr td').should('have.length', 11);
         cy.get('.minigame-ranking-table tbody').should('contain.text', '1.234').and('contain.text', '--');
+        cy.get('[data-cy=minigame-replay-link]').first().should('have.attr', 'href', '/minigame/left-click?player=42&key=b-50-v1');
+        cy.get('.minigame-ranking-table tbody tr td').eq(3).find('a').should('not.exist');
         cy.get('.minigame-ranking-table [aria-pressed=true]').should('have.attr', 'aria-label', 'Expert 7/8');
         cy.get('[data-cy=minigame-ranking-color]').should('be.disabled');
         cy.get('.minigame-ranking-table [aria-label="Beginner 3/4"]').click();
@@ -56,12 +59,13 @@ describe('minigame rankings', () => {
         cy.wait('@rank').its('request.query.start').should('equal', '20');
         cy.get('[data-cy=minigame-ranking-refresh]').click();
         cy.wait('@rank');
-        for (const [game, label, columns] of [['flag-chord', 'Flag-and-chord training', 4], ['missing-cell', 'Missing cell training', 5]] as const) {
+        for (const [game, label, columns] of [['multi-touch', 'Multi-touch training', 11], ['flag-chord', 'Flag-and-chord training', 4], ['missing-cell', 'Missing cell training', 5]] as const) {
             cy.get('.ranking-selector').click();
             cy.get('.el-select-dropdown__item').contains(label).click();
             cy.wait('@rank').its('request.query.start').should('equal', '0');
             cy.get('.minigame-ranking-table tbody tr td').should('have.length', columns);
             cy.get('[data-cy=minigame-play-link]').should('have.attr', 'href', `/minigame/${game}`);
+            cy.get('[data-cy=minigame-replay-link]').first().should('have.attr', 'href', `/minigame/${game}?player=42&key=${game === 'multi-touch' ? 'b-50-v1' : 'b-v1'}`);
         }
         cy.get('[data-cy=minigame-play-link]').click();
         cy.wrap(router).its('currentRoute.value.name').should('equal', 'minigame-missing-cell');

@@ -1,5 +1,5 @@
 <template>
-    <section class="training-page" :aria-label="t('local.title')" :data-phase="phase" data-cy="missing-cell-game">
+    <section class="training-page" :aria-label="t('local.title')" :data-phase="phase" :data-replay="replayData !== null" data-cy="missing-cell-game">
         <div class="training-controls">
             <div class="checkbox-buttons" role="radiogroup" :aria-label="t('local.level')" data-cy="missing-cell-level">
                 <label v-for="item in missingCellModes" :key="item.key" class="checkbox-button">
@@ -25,6 +25,7 @@
                 :label="t('local.boardLabel')" @action="onAction"
             />
         </MiniGameFrame>
+        <slot name="resultActions" />
         <TrainingResults v-if="phase === 'won'" :times-ms="roundTimes" @hover="hoveredRound = $event" />
         <p class="text text-small">
             {{ t('local.rules') }}
@@ -38,6 +39,7 @@ import '@/components/MiniGame/training.css';
 import { Counter } from '@putianyi888/vue3-minesweeper-board';
 import { useRafFn } from '@vueuse/core';
 import { computed, ref, shallowRef, useId, watch } from 'vue';
+import type { PropType, VNode } from 'vue';
 import { useI18n } from 'vue-i18n';
 
 import TrainingResults from './Results.vue';
@@ -49,11 +51,15 @@ import { offlineDownloadFilename, offlineDownloadUrl } from '@/utils/minigame/ga
 import { saveMinigameResult } from '@/utils/minigame/history';
 import { missingCellModes, missingCellRounds, MissingCellTraining, reviewMissingCellRound } from '@/utils/minigame/missingCellTraining';
 import type { MissingCellRoundResult } from '@/utils/minigame/missingCellTraining';
+import { encodeMissingCellRecording } from '@/utils/minigame/recording';
+import type { MissingCellRecording } from '@/utils/minigame/recording';
+import type { MissingCellReplay } from '@/utils/minigame/review';
 import { minigameSettings } from '@/utils/minigame/settings';
 
-defineProps({ offline: { type: Boolean, default: false } });
-const emit = defineEmits<{ completed: [rankingKey: string, scoreMs: number, replay: { rounds: readonly MissingCellRoundResult[] }] }>();
-const level = ref<typeof missingCellModes[number]['key']>('b');
+const props = defineProps({ offline: { type: Boolean, default: false }, replayData: { type: Object as PropType<MissingCellReplay | null>, default: null } });
+const emit = defineEmits<{ completed: [rankingKey: string, scoreMs: number, replay: MissingCellRecording]; reset: [] }>();
+defineSlots<{ resultActions?: () => VNode[] }>();
+const level = ref<typeof missingCellModes[number]['key']>(props.replayData?.mode.key ?? 'b');
 const levelGroupName = useId();
 const mode = computed(() => {
     const selected = missingCellModes.find((item) => item.key === level.value);
@@ -88,6 +94,7 @@ function restart() {
     round.value++;
     roundResults.value = [];
     hoveredRound.value = null;
+    emit('reset');
 }
 
 function onAction(action: ClassicMouseAction, row: number, column: number) {
@@ -100,14 +107,30 @@ function onAction(action: ClassicMouseAction, row: number, column: number) {
     elapsed.value = game.elapsedMs(now);
     roundResults.value = game.roundResults;
     if (game.phase === 'won') {
-        void saveMinigameResult({ game: 'missing-cell', mode: game.mode, scoreMs: elapsed.value, rounds: roundResults.value });
-        emit('completed', `missing-cell-${game.mode.key}-v1`, elapsed.value, { rounds: roundResults.value });
+        const recording = encodeMissingCellRecording(game.mode, roundResults.value);
+        void saveMinigameResult({ game: 'missing-cell', mode: game.mode, scoreMs: elapsed.value, ...recording });
+        emit('completed', `missing-cell-${game.mode.key}-v1`, elapsed.value, recording);
     }
     if (game.phase === 'playing') resume();
     else pause();
 }
 
 watch(mode, restart);
+watch(() => props.replayData, (data, previous) => {
+    if (data === null) {
+        if (roundResults.value === previous?.rounds) restart();
+        return;
+    }
+    const final = data.rounds.at(-1);
+    if (final === undefined) return;
+    pause();
+    roundResults.value = data.rounds;
+    hoveredRound.value = null;
+    board.value = reviewMissingCellRound(final, true).board;
+    remaining.value = 0;
+    elapsed.value = data.durationMs;
+    phase.value = 'won';
+}, { immediate: true });
 
 const i18nMessages = {
     'zh-cn': { local: {

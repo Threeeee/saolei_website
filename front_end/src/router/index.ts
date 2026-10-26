@@ -50,6 +50,7 @@ const routes: RouteRecordRaw[] = [
         redirect: '/minigame/left-click',
         children: [
             { path: 'left-click', name: 'minigame-left-click', component: () => import('../views/MiniGameView/LeftClickTraining/App.vue') },
+            { path: 'multi-touch', name: 'minigame-multi-touch', component: () => import('../views/MiniGameView/LeftClickTraining/App.vue'), props: { gameType: 'multi-touch' } },
             { path: 'flag-chord', name: 'minigame-flag-chord', component: () => import('../views/MiniGameView/FlagChordTraining/App.vue') },
             { path: 'missing-cell', name: 'minigame-missing-cell', component: () => import('../views/MiniGameView/MissingCellTraining/App.vue') },
         ],
@@ -77,6 +78,11 @@ const routes: RouteRecordRaw[] = [
         component: () => import('../views/StaffView/App.vue'),
         redirect: '/staff/userprofile',
         children: staffRoutes,
+    },
+    {
+        path: '/superuser/delete-videos',
+        name: 'superuser-delete-videos',
+        component: () => import('../views/StaffView/DeleteVideos.vue'),
     },
     {
         path: '/tournament/:id',

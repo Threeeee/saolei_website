@@ -1,4 +1,4 @@
-import { getMinigameDatabase, MINIGAME_RESULTS_STORE } from '../../src/utils/minigame/history';
+import { getMinigameDatabase, MINIGAME_RESULTS_STORE, readMinigameHistoryEntry } from '../../src/utils/minigame/history';
 import type { MinigameHistoryEntry } from '../../src/utils/minigame/history';
 
 export function isolateMinigameHistory(): void {
@@ -13,7 +13,7 @@ export function isolateMinigameHistory(): void {
 export function savedMinigameResults(): Cypress.Chainable<MinigameHistoryEntry[]> {
     return cy.then(async () => {
         const db = await getMinigameDatabase();
-        return db.getAll(MINIGAME_RESULTS_STORE);
+        return Promise.all((await db.getAll(MINIGAME_RESULTS_STORE)).map(readMinigameHistoryEntry));
     });
 }
 
@@ -38,4 +38,15 @@ export function chordAt(row: number, column: number): void {
 export function rightAt(row: number, column: number): void {
     mouseAt(row, column, 'mousedown', 2, 2);
     mouseAt(row, column, 'mouseup', 2, 0);
+}
+
+/** Synthetic contacts use the real PointerEvent API; tests stub native pointer capture. */
+export function touchAt(row: number, column: number, type: 'pointerdown' | 'pointermove' | 'pointerup' | 'pointercancel', pointerId = 1, pointerType = 'touch', size = 32): void {
+    cy.get('[data-cy="minigame-board"]').scrollIntoView({ duration: 0 });
+    cy.get('[data-cy="minigame-board"]').then(($board) => {
+        const rect = $board[0].getBoundingClientRect();
+        const x = (column + 0.5) * size;
+        const y = (row + 0.5) * size;
+        cy.wrap($board).trigger(type, x, y, { eventConstructor: 'PointerEvent', pointerId, pointerType, isPrimary: pointerId === 1, clientX: rect.left + x, clientY: rect.top + y, scrollBehavior: false });
+    });
 }

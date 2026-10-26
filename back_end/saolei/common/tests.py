@@ -7,7 +7,6 @@ from types import SimpleNamespace
 from unittest.mock import patch
 from urllib.parse import urlencode
 
-from django.core.cache import cache
 from django.core.files import File
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.tasks import TaskResultStatus
@@ -17,11 +16,10 @@ from django_apscheduler.models import DjangoJob
 from django_redis import get_redis_connection
 from django_tasks_db.models import DBTaskResult, get_date_max
 
-from accountlink.models import AccountSaolei, VideoSaolei
 from common.management.commands import db_worker_robust
 from config.common import TASK_CLEANUP_CONFIGS
 from config.customranking import CUSTOM_PLUCK_LEVELS, CUSTOM_PLUCK_MODES
-from config.text_choices import MS_TextChoices, Saolei_TextChoices, Tournament_TextChoices
+from config.text_choices import MS_TextChoices, Tournament_TextChoices
 from customranking.cache import PLuckRankingCache
 from identifier.models import Identifier
 from msuser.models import UserMS
@@ -60,8 +58,26 @@ class APSchedulerRegistrationTests(TestCase):
                 'delete_overdue_emailverifyrecord',
                 'delete_overdue_tasks',
                 'refresh_tournament_score_reference',
+                'refresh_monitor_snapshot',
             },
         )
+
+    def test_monitor_snapshot_runs_on_startup_and_every_five_minutes(self):
+        from apscheduler.schedulers.background import BackgroundScheduler
+        from common.apscheduler import refresh_monitor_snapshot, register_jobs
+
+        scheduler = BackgroundScheduler(timezone=datetime_timezone.utc)
+        now = datetime(2026, 10, 25, 12, 1, tzinfo=datetime_timezone.utc)
+        with patch('common.apscheduler.django_timezone.now', return_value=now):
+            register_jobs(scheduler)
+        job = scheduler.get_job('refresh_monitor_snapshot')
+        self.assertEqual(job.func, refresh_monitor_snapshot)
+        self.assertEqual(job.next_run_time, now)
+        self.assertEqual(job.max_instances, 1)
+        self.assertTrue(job.coalesce)
+        first_run = job.trigger.get_next_fire_time(None, now)
+        self.assertEqual(first_run, now.replace(minute=5))
+        self.assertEqual(job.trigger.get_next_fire_time(first_run, first_run), first_run + timedelta(minutes=5))
 
     def test_task_cleanup_runs_weekly_in_scheduler_timezone(self):
         from apscheduler.schedulers.background import BackgroundScheduler
@@ -209,6 +225,26 @@ class TaskDeletionTests(TestCase):
         )
         self.client.force_login(self.staff)
 
+    def test_task_summary_reads_current_database_counts(self):
+        task = self.create_task()
+        first = self.client.get('/api/common/tasks/summary')
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(first.json()['status']['READY'], 1)
+        DBTaskResult.objects.filter(pk=task.pk).update(status=TaskResultStatus.SUCCESSFUL)
+        second = self.client.get('/api/common/tasks/summary')
+        self.assertEqual(second['Cache-Control'], 'no-cache')
+        self.assertEqual(second.json()['status']['READY'], 0)
+        self.assertEqual(second.json()['status']['SUCCESSFUL'], 1)
+        self.assertEqual(second.json()['total'], 1)
+
+    def test_task_summary_requires_staff(self):
+        self.client.logout()
+        self.assertEqual(self.client.get('/api/common/tasks/summary').status_code, 403)
+        self.staff.is_staff = False
+        self.staff.save(update_fields=['is_staff'])
+        self.client.force_login(self.staff)
+        self.assertEqual(self.client.get('/api/common/tasks/summary').status_code, 403)
+
     def create_task(
         self,
         *,
@@ -242,8 +278,6 @@ class TaskDeletionTests(TestCase):
 
     def test_delete_ready_task(self):
         task = self.create_task()
-        cache.set('api:monitor/tasksummary', {'total': 1}, 300)
-        self.addCleanup(cache.delete, 'api:monitor/tasksummary')
 
         response = self.client.post(
             '/api/common/tasks/delete',
@@ -254,7 +288,6 @@ class TaskDeletionTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIsNone(response.json())
         self.assertFalse(DBTaskResult.objects.filter(id=task.id).exists())
-        self.assertIsNone(cache.get('api:monitor/tasksummary'))
 
     def test_delete_running_task_returns_conflict(self):
         task = self.create_task(status=TaskResultStatus.RUNNING)
@@ -376,44 +409,12 @@ class TaskDeletionTests(TestCase):
 
     def test_restart_failed_task_reenqueues_same_task_and_updates_task_path_reference(self):
         run_after = timezone.now() - timedelta(minutes=1)
-        account_task = self.create_task(
-            status=TaskResultStatus.FAILED,
-            task_path='accountlink.tasks.task_saolei_video_import_bulk',
-            args=[100001, 'new'],
-            priority=2,
-            run_after=run_after,
-            finished_at=timezone.now(),
-        )
-        video_task = self.create_task(
-            status=TaskResultStatus.FAILED,
-            task_path='accountlink.tasks.task_saolei_video_import',
-            kwargs={'video_id': 100002},
-            priority=-1,
-            run_after=run_after,
-            finished_at=timezone.now(),
-        )
         gsc_task = self.create_task(
             status=TaskResultStatus.FAILED,
             task_path='tournament.gsc.tasks.task_gsc_finish',
             kwargs={'gsc_order': 100},
             run_after=run_after,
             finished_at=timezone.now(),
-        )
-        account = AccountSaolei.objects.create(
-            id=100001,
-            parent=self.staff,
-            video_import_task=account_task,
-        )
-        video = VideoSaolei.objects.create(
-            id=100002,
-            user=account,
-            upload_time=timezone.now(),
-            level=MS_TextChoices.Level.BEGINNER,
-            bv=1,
-            timems=1000,
-            nf=False,
-            state=Saolei_TextChoices.SaoleiVideoState.PENDING,
-            import_task=video_task,
         )
         tournament = GSCTournament.objects.create(
             order=100,
@@ -426,24 +427,12 @@ class TaskDeletionTests(TestCase):
 
         cases = [
             (
-                account_task,
-                account,
-                'video_import_task_id',
-            ),
-            (
-                video_task,
-                video,
-                'import_task_id',
-            ),
-            (
                 gsc_task,
                 tournament,
                 'task_id',
             ),
         ]
         for old_task, obj, task_field_id in cases:
-            cache.set('api:monitor/tasksummary', {'total': 3}, 300)
-            self.addCleanup(cache.delete, 'api:monitor/tasksummary')
             response = self.client.post(
                 '/api/common/tasks/restart',
                 urlencode({'task_id': str(old_task.id)}),
@@ -451,7 +440,6 @@ class TaskDeletionTests(TestCase):
             )
 
             self.assertEqual(response.status_code, 200, response.content)
-            self.assertIsNone(cache.get('api:monitor/tasksummary'))
             response_data = response.json()
             new_task = DBTaskResult.objects.get(id=response_data['id'])
             self.assertNotEqual(old_task.id, new_task.id)
@@ -471,29 +459,22 @@ class TaskDeletionTests(TestCase):
     def test_restart_task_with_stale_business_reference_returns_conflict(self):
         failed_task = self.create_task(
             status=TaskResultStatus.FAILED,
-            task_path='accountlink.tasks.task_saolei_video_import',
-            args=[100003],
+            task_path='tournament.gsc.tasks.task_gsc_finish',
+            args=[103],
             finished_at=timezone.now(),
         )
         current_task = self.create_task(
             status=TaskResultStatus.READY,
-            task_path='accountlink.tasks.task_saolei_video_import',
-            args=[100003],
+            task_path='tournament.gsc.tasks.task_gsc_finish',
+            args=[103],
         )
-        account = AccountSaolei.objects.create(
-            id=100003,
-            parent=self.staff,
-        )
-        VideoSaolei.objects.create(
-            id=100003,
-            user=account,
-            upload_time=timezone.now(),
-            level=MS_TextChoices.Level.BEGINNER,
-            bv=1,
-            timems=1000,
-            nf=False,
-            state=Saolei_TextChoices.SaoleiVideoState.PENDING,
-            import_task=current_task,
+        GSCTournament.objects.create(
+            order=103,
+            start_time=timezone.now() - timedelta(days=1),
+            end_time=timezone.now() - timedelta(hours=1),
+            state=Tournament_TextChoices.State.AWARDED,
+            host=self.staff,
+            task=current_task,
         )
 
         response = self.client.post(
@@ -513,7 +494,7 @@ class TaskDeletionTests(TestCase):
     def test_restart_task_with_invalid_business_arguments_returns_error_body(self):
         failed_task = self.create_task(
             status=TaskResultStatus.FAILED,
-            task_path='accountlink.tasks.task_saolei_video_import',
+            task_path='tournament.gsc.tasks.task_gsc_finish',
             finished_at=timezone.now(),
         )
 

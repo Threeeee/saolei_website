@@ -1,4 +1,5 @@
 import type { Counter } from '@putianyi888/vue3-minesweeper-board';
+import { defineComponent, h } from 'vue';
 
 import App from './App.vue';
 import type TrainingResults from './Results.vue';
@@ -8,8 +9,16 @@ import i18n from '@/i18n';
 import { offlineDownloadFilename } from '@/utils/minigame/games';
 import { reviewMissingCellRound } from '@/utils/minigame/missingCellTraining';
 import { missingCellCandidates } from '@/utils/minigame/missingCellTraining.testHelpers';
+import { decodeMissingCellRounds } from '@/utils/minigame/recording';
 import { defaultMinigameSettings, minigameSettings } from '@/utils/minigame/settings';
 import { chordAt, isolateMinigameHistory, mouseAt, rightAt, savedMinigameResults } from '@cy/support/minigame';
+
+function mountGame() {
+    return cy.mount(defineComponent({ expose: [], render: () => h(App) }), { global: { plugins: [i18n] } }).then(({ wrapper }) => {
+        const game = wrapper.findComponent(App);
+        return cy.wrap(game).as('vue').then(() => ({ wrapper: game }));
+    });
+}
 
 describe('missing cell training', () => {
     isolateMinigameHistory();
@@ -23,7 +32,7 @@ describe('missing cell training', () => {
     it('starts only on release and completes ten boards with a shared timer', () => {
         const snapshots: { board: number[][]; target: { row: number; column: number } }[] = [];
         let times: readonly number[] = [];
-        cy.mount(App, { global: { plugins: [i18n] } });
+        mountGame();
         cy.get('[data-cy="missing-cell-download"]').should('have.attr', 'download', offlineDownloadFilename);
         rightAt(0, 0);
         chordAt(0, 0);
@@ -117,21 +126,22 @@ describe('missing cell training', () => {
             const [entry] = entries;
             if (entry.game !== 'missing-cell') throw new Error('Wrong saved game');
             expect(entry.mode.key).to.eq('b');
-            expect(entry.rounds.map((result) => {
-                expect(Object.keys(result).sort()).to.deep.eq(['board', 'timeMs']);
+            expect(entry.version).to.eq(1);
+            expect(entry.rounds.every((result) => Object.keys(result).sort().join() === 'board,target,timeMs')).to.eq(true);
+            expect(decodeMissingCellRounds(entry.mode, entry).map((result) => {
                 const { board, target } = reviewMissingCellRound(result);
                 return { board, target };
             })).to.deep.eq(snapshots);
             expect(entry.rounds.map((round) => round.timeMs)).to.deep.eq(times);
             expect(entry.scoreMs).to.eq(times.reduce((total, time) => total + time, 0));
             cy.get<ComponentWrapper<typeof App>>('@vue').should((wrapper) => {
-                expect(wrapper.emitted('completed')).to.deep.eq([['missing-cell-b-v1', entry.scoreMs, { rounds: entry.rounds }]]);
+                expect(wrapper.emitted('completed')).to.deep.eq([['missing-cell-b-v1', entry.scoreMs, { version: 1, rounds: entry.rounds }]]);
             });
         });
     });
 
     it('ignores open cells, right clicks and chords, loses on a mine and restarts from the counter bar', () => {
-        cy.mount(App, { global: { plugins: [i18n] } });
+        mountGame();
         mouseAt(0, 0, 'mousedown');
         mouseAt(0, 0, 'mouseup');
         cy.get<ComponentWrapper<typeof App>>('@vue').then((wrapper) => {
@@ -160,7 +170,7 @@ describe('missing cell training', () => {
     });
 
     it('resets when switching level and uses classic mine counts', () => {
-        cy.mount(App, { global: { plugins: [i18n] } });
+        mountGame();
         for (const [level, columns, mines] of [['i', 16, 40], ['e', 30, 99]] as const) {
             cy.get(`[data-cy="missing-cell-level"] input[value="${level}"]`).parent().click();
             cy.get('[data-cy="missing-cell-game"]').should('have.attr', 'data-phase', 'ready');

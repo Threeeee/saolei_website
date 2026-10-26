@@ -78,6 +78,7 @@ const acknowledgements = [
     { text: 'qqwref' },
     { text: 'gacord' },
     { text: 'Nanaka.' },
+    { text: '购置拆解' },
 ];
 
 /* 本地化 Localization */

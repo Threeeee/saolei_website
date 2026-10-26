@@ -1,5 +1,34 @@
 /* eslint-disable vue/one-component-per-file -- Each test mounts its own render-only fixture. */
-import { defineComponent, h, ref } from 'vue';
+import { ElNotification } from 'element-plus';
+import { defineComponent, h, onMounted, ref } from 'vue';
+
+describe('closeElNotifications', () => {
+    afterEach(() => {
+        ElNotification.closeAll();
+    });
+
+    for (const count of [0, 3]) {
+        it(`closes ${count} persistent notifications without requiring a close button to exist`, () => {
+            // Element Plus removes notifications in Transition hooks, which the default stub skips.
+            cy.mount(defineComponent({
+                expose: [],
+                setup() {
+                    onMounted(() => {
+                        for (let index = 0; index < count; index++) {
+                            ElNotification({ title: `Notice ${index + 1}`, duration: 0 });
+                        }
+                    });
+                    return () => h('div');
+                },
+            }), { global: { stubs: { transition: false } } });
+
+            cy.get('body').find('.el-notification:visible').should('have.length', count);
+            cy.closeElNotifications();
+            cy.get('.el-notification').should('not.exist');
+            cy.closeElNotifications();
+        });
+    }
+});
 
 describe('extractTableData', () => {
     for (const target of ['table', 'tbody']) {

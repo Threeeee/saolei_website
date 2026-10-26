@@ -1,15 +1,16 @@
 from collections import Counter
 from datetime import datetime, timezone
+from math import ceil
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
-from django.core.cache import cache
-from django.test import override_settings, SimpleTestCase, TestCase
+from django.test import override_settings, SimpleTestCase
 import psutil
 from redis.exceptions import ConnectionError as RedisConnectionError
 
+from minigame.utils import RANKINGS
 from . import cache as monitor_cache, server_metrics, services
 
 
@@ -110,6 +111,8 @@ class ProcessMemoryTests(SimpleTestCase):
 
 
 class RedisMemoryTests(SimpleTestCase):
+    NON_MINIGAME_RANKING_KEYS = 69
+
     def redis_client(self, fields=None, sizes=None, total=1000):
         client = MagicMock()
         client.hkeys.return_value = [b'std:b:4', b'nf:e:381'] if fields is None else fields
@@ -141,15 +144,17 @@ class RedisMemoryTests(SimpleTestCase):
             'effranking:thrp:e': 40, 'effranking:thrp:sum': 50,
             'minigame:rank:v1:left-click-b-50-v1': 11, 'minigame:detail:v1:left-click-b-50-v1': 12,
             'minigame:ready:v1:left-click-b-50-v1': 1,
+            'minigame:rank:v1:multi-touch-e-87.5-v1': 13, 'minigame:detail:v1:multi-touch-e-87.5-v1': 14,
+            'minigame:ready:v1:multi-touch-e-87.5-v1': 1,
         }
         client, pipe = self.redis_client(sizes=sizes)
         result = self.collect(client, players=(7, 8, 7))
         measured = Counter(call.args[0] for call in pipe.memory_usage.call_args_list)
         self.assertTrue(all(count == 1 for count in measured.values()))
-        self.assertEqual(len([key for key in measured if not key.startswith('speedranking:pb:') and key != 'newest_queue']), 111)
+        self.assertEqual(len([key for key in measured if not key.startswith('speedranking:pb:') and key != 'newest_queue']), self.NON_MINIGAME_RANKING_KEYS + 3 * len(RANKINGS))
         self.assertEqual(result['groups']['pb_rankings'], 100)
-        self.assertEqual(result['groups']['other_rankings'], 454)
-        self.assertEqual(len([key for key in measured if key.startswith('minigame:')]), 42)
+        self.assertEqual(result['groups']['other_rankings'], 482)
+        self.assertEqual(len([key for key in measured if key.startswith('minigame:')]), 3 * len(RANKINGS))
         self.assertEqual(result['groups']['latest_videos'], 80)
         self.assertEqual(sum(result['groups'].values()), result['total_bytes'])
         self.assertNotIn('freeze_queue', measured)
@@ -189,68 +194,42 @@ class RedisMemoryTests(SimpleTestCase):
 
     def test_large_user_list_uses_bounded_pipelines(self):
         client, pipe = self.redis_client()
-        self.collect(client, players=range(1, 251))
-        self.assertEqual(pipe.execute.call_count, 4)
-        self.assertEqual(pipe.memory_usage.call_count, 365)
+        players = range(1, 251)
+        self.collect(client, players=players)
+        pb_keys = 1 + len(client.hkeys.return_value) + len(players)
+        other_ranking_keys = self.NON_MINIGAME_RANKING_KEYS + 3 * len(RANKINGS)
+        expected_keys = pb_keys + other_ranking_keys + 1  # Latest-video queue.
+        self.assertEqual(pipe.memory_usage.call_count, expected_keys)
+        self.assertEqual(pipe.execute.call_count, ceil(expected_keys / monitor_cache.MEMORY_BATCH_SIZE))
 
 
-@override_settings(
-    CACHES={**settings.CACHES, 'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache', 'LOCATION': 'memory-tests'}},
-    RATELIMIT_ENABLE=False,
-)
-class MemoryApiTests(TestCase):
+class MemoryCollectionTests(SimpleTestCase):
     def setUp(self):
-        cache.delete('api:monitor/memoryusage')
-        self.addCleanup(cache.delete, 'api:monitor/memoryusage')
         scope = patch.object(services, '_check_local_services')
         scope.start()
         self.addCleanup(scope.stop)
 
-    def test_complete_response_is_cached_for_300_seconds_without_recollection(self):
+    def test_permission_failure_does_not_hide_redis(self):
         with (
-            patch.object(services, 'collect_process_memory', side_effect=lambda *args: ready_process()) as process,
-            patch.object(services, 'collect_redis_memory', side_effect=lambda *args: ready_redis()) as redis,
-            patch.object(services, '_player_ids', return_value=iter(())) as player_ids,
-        ):
-            with patch('time.time', return_value=1_700_000_000):
-                first = self.client.get('/api/monitor/memoryusage')
-            self.assertEqual(first.status_code, 200)
-            with patch('time.time', return_value=1_700_000_299):
-                self.assertEqual(self.client.get('/api/monitor/memoryusage').json(), first.json())
-            self.assertEqual(process.call_count, 1)
-            self.assertEqual(redis.call_count, 1)
-            self.assertEqual(player_ids.call_count, 1)
-            with patch('time.time', return_value=1_700_000_301):
-                self.assertEqual(self.client.get('/api/monitor/memoryusage').status_code, 200)
-            self.assertEqual(process.call_count, 2)
-            self.assertEqual(redis.call_count, 2)
-
-    def test_permission_failure_does_not_hide_redis_and_is_cached(self):
-        with (
-            patch.object(services, 'collect_process_memory', side_effect=server_metrics.CollectionError('permission_denied', 2)) as process,
+            patch.object(services, 'collect_process_memory', side_effect=server_metrics.CollectionError('permission_denied', 2)),
             patch.object(services, 'collect_redis_memory', return_value=ready_redis()),
         ):
-            response = self.client.get('/api/monitor/memoryusage')
-            self.assertEqual(response.status_code, 200)
-            data = response.json()
-            self.assertEqual(data['memory']['status'], 'unavailable')
-            self.assertEqual(data['memory']['reason'], 'permission_denied')
-            self.assertIsNone(data['memory']['groups'])
-            self.assertEqual(data['memory']['unreadable_processes'], 2)
-            self.assertEqual(data['redis']['status'], 'ready')
-            self.client.get('/api/monitor/memoryusage')
-            self.assertEqual(process.call_count, 1)
+            data = services.get_memory_usage()
+        self.assertEqual(data['memory']['status'], 'unavailable')
+        self.assertEqual(data['memory']['reason'], 'permission_denied')
+        self.assertIsNone(data['memory']['groups'])
+        self.assertEqual(data['memory']['unreadable_processes'], 2)
+        self.assertEqual(data['redis']['status'], 'ready')
 
     def test_redis_failure_does_not_hide_process_memory_or_leak_exceptions(self):
         with (
             patch.object(services, 'collect_process_memory', return_value=ready_process()),
             patch.object(services, 'collect_redis_memory', side_effect=RedisConnectionError('secret connection details')),
         ):
-            response = self.client.get('/api/monitor/memoryusage')
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()['memory']['status'], 'ready')
-        self.assertEqual(response.json()['redis']['reason'], 'redis_unavailable')
-        self.assertNotIn('secret', response.content.decode())
+            data = services.get_memory_usage()
+        self.assertEqual(data['memory']['status'], 'ready')
+        self.assertEqual(data['redis']['reason'], 'redis_unavailable')
+        self.assertNotIn('secret', str(data))
 
     def test_player_ids_are_read_in_bounded_primary_key_batches(self):
         with patch.object(services.UserProfile, 'objects') as objects:
@@ -258,15 +237,6 @@ class MemoryApiTests(TestCase):
             query.__getitem__.side_effect = [[1, 3], [9], []]
             self.assertEqual(list(services._player_ids(float('inf'))), [1, 3, 9])
         self.assertEqual([call.kwargs for call in objects.filter.call_args_list], [{'pk__gt': 0}, {'pk__gt': 3}, {'pk__gt': 9}])
-
-    def test_cache_connection_failure_does_not_run_uncached_collectors(self):
-        with (
-            patch.object(monitor_cache.cache, 'get_or_set', side_effect=RedisConnectionError('unavailable')),
-            patch.object(services, 'collect_process_memory') as process,
-            self.assertRaises(RedisConnectionError),
-        ):
-            self.client.get('/api/monitor/memoryusage')
-        process.assert_not_called()
 
 
 class LocalServicesTests(SimpleTestCase):

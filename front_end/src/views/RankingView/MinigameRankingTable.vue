@@ -3,11 +3,11 @@
     <BaseTable v-loading="loading" class="minigame-ranking-table" :table-style="{ width: 'auto', marginInline: 'auto' }" :empty="rows.length === 0" :column-count="rankings.length + 2" :empty-text="t('ranking.empty')">
         <template #head>
             <tr>
-                <th :rowspan="game === 'left-click' ? 2 : 1" scope="col" class="table-col-rank" />
-                <th :rowspan="game === 'left-click' ? 2 : 1" scope="col" class="table-col-player">
+                <th :rowspan="hasDensities ? 2 : 1" scope="col" class="table-col-rank" />
+                <th :rowspan="hasDensities ? 2 : 1" scope="col" class="table-col-player">
                     {{ t('common.prop.player') }}
                 </th>
-                <template v-if="game === 'left-click'">
+                <template v-if="hasDensities">
                     <th v-for="level in ['b', 'i', 'e']" :key="level" scope="colgroup" colspan="3" class="table-col-center">
                         {{ t(`common.level.${level}`) }}
                     </th>
@@ -20,7 +20,7 @@
                     </th>
                 </template>
             </tr>
-            <tr v-if="game === 'left-click'">
+            <tr v-if="hasDensities">
                 <th v-for="ranking in rankings" :key="ranking.key" scope="col" class="table-col-number" :aria-sort="sort === ranking.key ? ranking.order === 'asc' ? 'ascending' : 'descending' : 'none'">
                     <button type="button" class="stat-header" :aria-label="`${t(`common.level.${ranking.level}`)} ${densityLabels[ranking.density ?? '50']}`" :aria-pressed="sort === ranking.key" @click="sort = ranking.key">
                         {{ densityLabels[ranking.density ?? '50'] }}
@@ -36,7 +36,12 @@
                 <PlayerName :user-id="row.player_id" />
             </td>
             <td v-for="ranking in rankings" :key="ranking.key" class="table-col-number" :style="cellStyle(row, ranking)" :title="row.records[ranking.key] == null ? undefined : toISODateTimeString(new Date(row.records[ranking.key]!.achieved_at))">
-                {{ row.records[ranking.key] == null ? '--' : ms_to_s(row.records[ranking.key]!.score) }}
+                <RouterLink v-if="row.records[ranking.key] != null" class="link" data-cy="minigame-replay-link" :to="{ name: `minigame-${game}`, query: { player: row.player_id, key: ranking.key.slice(game.length + 1) } }">
+                    {{ ms_to_s(row.records[ranking.key]!.score) }}
+                </RouterLink>
+                <template v-else>
+                    --
+                </template>
             </td>
         </tr>
     </BaseTable>
@@ -46,10 +51,13 @@
 </template>
 
 <script setup lang="ts">
+import '@/styles/link.css';
+
 import { ElAlert, ElPagination, vLoading } from 'element-plus';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import type { PropType } from 'vue';
 import { useI18n } from 'vue-i18n';
+import { RouterLink } from 'vue-router';
 
 import { queryChoice, queryInteger, useRankingQuery } from './useRankingQuery';
 
@@ -66,6 +74,7 @@ const props = defineProps({
     colorScheme: { type: Function as PropType<MinigameColorScheme>, default: undefined },
 });
 const rankings = ref<MinigameRanking[]>([]);
+const hasDensities = computed(() => props.game === 'left-click' || props.game === 'multi-touch');
 const densityLabels = { 50: '1/2', 75: '3/4', 87.5: '7/8' };
 const { fields: { sort, page, page_size: pageSize }, update } = useRankingQuery(
     { sort: '', page: 1, page_size: 20 },

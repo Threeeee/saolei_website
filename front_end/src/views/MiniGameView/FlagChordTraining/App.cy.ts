@@ -1,4 +1,5 @@
 import type { Counter } from '@putianyi888/vue3-minesweeper-board';
+import { defineComponent, h } from 'vue';
 
 import App from './App.vue';
 
@@ -8,6 +9,13 @@ import i18n from '@/i18n';
 import { rebuildTrainingReplay, replayFrame } from '@/utils/minigame/replay';
 import type { TrainingReplay } from '@/utils/minigame/replay';
 import { chordAt, isolateMinigameHistory, mouseAt, rightAt, savedMinigameResults } from '@cy/support/minigame';
+
+function mountGame() {
+    return cy.mount(defineComponent({ expose: [], render: () => h(App) }), { global: { plugins: [i18n] } }).then(({ wrapper }) => {
+        const game = wrapper.findComponent(App);
+        return cy.wrap(game).as('vue').then(() => ({ wrapper: game }));
+    });
+}
 
 function questions(board: number[][]) {
     return board.flatMap((row, r) => row.flatMap((value, c) => {
@@ -43,7 +51,7 @@ function checkQuestions(total: number, size: number) {
 describe('flag-and-chord training', () => {
     isolateMinigameHistory();
     it('ignores left clicks, times the first right press, accepts 1.5-click and completes all questions', () => {
-        cy.mount(App, { global: { plugins: [i18n] } });
+        mountGame();
         cy.get<ComponentWrapper<typeof App>>('@vue').then((wrapper) => {
             const board: number[][] = wrapper.findComponent<typeof MiniGameBoard>('[data-cy="minigame-board"]').props('board');
             const all = questions(board);
@@ -93,8 +101,8 @@ describe('flag-and-chord training', () => {
             const [entry] = entries;
             if (entry.game !== 'flag-chord') throw new Error('Wrong saved game');
             expect(entry.mode).to.include({ key: 'b', total: 4 });
-            expect(Object.keys(entry.replay).sort()).to.deep.eq(['events', 'initialBoard']);
-            const replay = rebuildTrainingReplay(entry.game, entry.replay, entry.scoreMs);
+            expect(Object.keys(entry.replay).sort()).to.deep.eq(['cellSize', 'events', 'initialBoard', 'specialEvents', 'version']);
+            const replay = rebuildTrainingReplay(entry, entry.replay, entry.scoreMs);
             expect(replay.chords).to.have.length(4);
             expect(replayFrame(replay, { timeMs: entry.scoreMs }).remaining).to.eq(0);
             cy.get<ComponentWrapper<typeof App>>('@vue').should((wrapper) => {
@@ -104,7 +112,7 @@ describe('flag-and-chord training', () => {
     });
 
     it('allows wrong flags to be cancelled but loses on a matching, incorrect chord', () => {
-        cy.mount(App, { global: { plugins: [i18n] } });
+        mountGame();
         cy.get<ComponentWrapper<typeof App>>('@vue').then((wrapper) => {
             const board: number[][] = wrapper.findComponent<typeof MiniGameBoard>('[data-cy="minigame-board"]').props('board');
             const [question] = questions(board);
@@ -133,7 +141,7 @@ describe('flag-and-chord training', () => {
     });
 
     it('offers two fixed levels and resets the round when switching them', () => {
-        cy.mount(App, { global: { plugins: [i18n] } });
+        mountGame();
         cy.get('[data-cy="flag-chord-level"] input').should(($inputs) => {
             expect(Array.from($inputs, (input) => (input as HTMLInputElement).value)).to.deep.eq(['b', 'i']);
         });
