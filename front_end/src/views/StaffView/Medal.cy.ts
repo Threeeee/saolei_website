@@ -4,14 +4,15 @@ import $axios from '@/http';
 import i18n from '@/i18n';
 import type { StaffMedalDefinition, StaffPlayerMedals } from '@/services/staffMedalService';
 import { store } from '@/store';
+import { MedalDirection, MedalKind, MedalSeries } from '@/utils/medal_const';
 
 const definition: StaffMedalDefinition = {
     code: 'time.b',
-    series: 'breakthrough',
+    series: MedalSeries.BREAKTHROUGH,
     subseries: '',
-    kind: 'pb',
+    kind: MedalKind.PB,
     metric: 'time',
-    direction: 'desc',
+    direction: MedalDirection.DESC,
     level: 'b',
     style: '',
     thresholds: [10_000, 20_000],
@@ -77,7 +78,7 @@ describe('staff medal management', () => {
     });
 
     it('blocks an unearned medal for a particular scope without a date or stage', () => {
-        cy.intercept('GET', '/api/medal/staff/catalog', [{ ...definition, kind: 'manual' }]);
+        cy.intercept('GET', '/api/medal/staff/catalog', [{ ...definition, kind: MedalKind.MANUAL }]);
         cy.intercept('POST', '/api/medal/staff/overrides', { grant_id: null, mode: 'revoke', enqueued: false }).as('save');
         mountMedals();
         loadPlayer();
@@ -93,7 +94,7 @@ describe('staff medal management', () => {
     });
 
     it('offers stage 1 for a manual definition with no thresholds', () => {
-        cy.intercept('GET', '/api/medal/staff/catalog', [{ ...definition, code: 'manual.award', series: 'Manual award', kind: 'manual', thresholds: [] }]);
+        cy.intercept('GET', '/api/medal/staff/catalog', [{ ...definition, code: 'manual.award', series: 'Manual award', kind: MedalKind.MANUAL, thresholds: [] }]);
         mountMedals();
         loadPlayer();
         selectOption(0, 'manual.award');

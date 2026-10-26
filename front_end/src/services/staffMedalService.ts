@@ -1,4 +1,6 @@
 import $axios from '@/http';
+import type { MedalDirection } from '@/utils/medal_const';
+import { MedalKind } from '@/utils/medal_const';
 
 export type MedalOverrideMode = 'grant' | 'revoke' | 'auto';
 
@@ -8,7 +10,7 @@ export interface StaffMedalDefinition {
     subseries: string;
     kind: string;
     metric: string;
-    direction: 'asc' | 'desc';
+    direction: MedalDirection;
     level: string;
     style: string;
     thresholds: number[];
@@ -73,11 +75,13 @@ export interface MedalOverrideResult {
 }
 
 export function staffMedalStages(definition: StaffMedalDefinition): number[] {
-    return definition.thresholds.length ? definition.thresholds : definition.kind === 'manual' ? [1] : [];
+    return definition.thresholds.length ? definition.thresholds : definition.kind === MedalKind.MANUAL ? [1] : [];
 }
 
+const scopedMedalKinds = new Set<string>([MedalKind.MANUAL, MedalKind.EVENT_PLACE, MedalKind.GSC_STAT, MedalKind.GSC_PLACE]);
+
 export function staffMedalAllowsScope(definition: StaffMedalDefinition): boolean {
-    return ['manual', 'event_place', 'gsc_stat', 'gsc_place'].includes(definition.kind);
+    return scopedMedalKinds.has(definition.kind);
 }
 
 export function validMedalOverride(input: MedalOverrideInput, definition: StaffMedalDefinition | undefined, hasOverride: boolean): boolean {

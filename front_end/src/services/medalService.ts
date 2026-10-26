@@ -1,3 +1,4 @@
+
 import { shallowReactive } from 'vue';
 
 import { serviceConfig } from './store';
@@ -5,6 +6,8 @@ import { serviceConfig } from './store';
 import $axios from '@/http';
 import en from '@/i18n/locales/en';
 import zhCn from '@/i18n/locales/zh-cn';
+import { MedalSeries } from '@/utils/medal_const';
+import type { MedalDirection } from '@/utils/medal_const';
 
 export interface MedalItem {
     code: string;
@@ -13,7 +16,7 @@ export interface MedalItem {
     kind: string;
     stage: number | null;
     stage_count: number;
-    direction: 'asc' | 'desc';
+    direction: MedalDirection;
     current_value: number | null;
     next_threshold: number | null;
     granted_at: string | null;
@@ -300,23 +303,23 @@ export function fetchPlayerMedalState(userId: number): Promise<MedalStateRecord[
 }
 
 const medalSeriesKeys: Record<string, keyof typeof en.medal.series> = {
-    breakthrough: 'breakthrough',
-    speed: 'speed',
-    mastery: 'mastery',
-    flagless_breakthrough: 'flaglessBreakthrough',
-    flagless_speed: 'flaglessSpeed',
-    flagless_mastery: 'flaglessMastery',
-    flagless_precision: 'flaglessPrecision',
-    flagged_precision: 'flaggedPrecision',
-    three_flagless_precision: 'threeTierFlaglessPrecision',
-    three_flagged_precision: 'threeTierFlaggedPrecision',
-    registered: 'registered',
-    reviewed: 'reviewed',
-    levels: 'firstGlimpse',
-    levels_nf: 'anotherPath',
-    modes: 'grandTour',
-    saolei: 'oldTraces',
-    shareholder: 'shareholder',
+    [MedalSeries.BREAKTHROUGH]: 'breakthrough',
+    [MedalSeries.SPEED]: 'speed',
+    [MedalSeries.MASTERY]: 'mastery',
+    [MedalSeries.FLAGLESS_BREAKTHROUGH]: 'flaglessBreakthrough',
+    [MedalSeries.FLAGLESS_SPEED]: 'flaglessSpeed',
+    [MedalSeries.FLAGLESS_MASTERY]: 'flaglessMastery',
+    [MedalSeries.FLAGLESS_PRECISION]: 'flaglessPrecision',
+    [MedalSeries.FLAGGED_PRECISION]: 'flaggedPrecision',
+    [MedalSeries.THREE_FLAGLESS_PRECISION]: 'threeTierFlaglessPrecision',
+    [MedalSeries.THREE_FLAGGED_PRECISION]: 'threeTierFlaggedPrecision',
+    [MedalSeries.REGISTERED]: 'registered',
+    [MedalSeries.REVIEWED]: 'reviewed',
+    [MedalSeries.LEVELS]: 'firstGlimpse',
+    [MedalSeries.LEVELS_NF]: 'anotherPath',
+    [MedalSeries.MODES]: 'grandTour',
+    [MedalSeries.SAOLEI]: 'oldTraces',
+    [MedalSeries.SHAREHOLDER]: 'shareholder',
 };
 
 export function medalSeriesLabel(series: string, locale: string): string {
@@ -325,12 +328,12 @@ export function medalSeriesLabel(series: string, locale: string): string {
     return (locale.startsWith('zh') ? zhCn.medal.series : en.medal.series)[key];
 }
 
-const timeSeries = new Set(['breakthrough', 'flagless_breakthrough']);
-const speedSeries = new Set(['speed', 'flagless_speed']);
-const masterySeries = new Set(['mastery', 'flagless_mastery']);
-const precisionSeries = new Set(['flagless_precision', 'flagged_precision', 'three_flagless_precision', 'three_flagged_precision']);
-const noviceSeries = new Set(['registered', 'reviewed', 'levels', 'levels_nf', 'modes', 'saolei']);
-const badgeSeries = new Set(['flagless_breakthrough', 'flagless_speed', 'flagless_mastery', 'flagless_precision', 'three_flagless_precision']);
+const timeSeries = new Set<string>([MedalSeries.BREAKTHROUGH, MedalSeries.FLAGLESS_BREAKTHROUGH]);
+const speedSeries = new Set<string>([MedalSeries.SPEED, MedalSeries.FLAGLESS_SPEED]);
+const masterySeries = new Set<string>([MedalSeries.MASTERY, MedalSeries.FLAGLESS_MASTERY]);
+const precisionSeries = new Set<string>([MedalSeries.FLAGLESS_PRECISION, MedalSeries.FLAGGED_PRECISION, MedalSeries.THREE_FLAGLESS_PRECISION, MedalSeries.THREE_FLAGGED_PRECISION]);
+const noviceSeries = new Set<string>([MedalSeries.REGISTERED, MedalSeries.REVIEWED, MedalSeries.LEVELS, MedalSeries.LEVELS_NF, MedalSeries.MODES, MedalSeries.SAOLEI]);
+const badgeSeries = new Set<string>([MedalSeries.FLAGLESS_BREAKTHROUGH, MedalSeries.FLAGLESS_SPEED, MedalSeries.FLAGLESS_MASTERY, MedalSeries.FLAGLESS_PRECISION, MedalSeries.THREE_FLAGLESS_PRECISION]);
 
 function trimScaled(stage: number, scale: number) {
     return (stage / scale).toFixed(5).replace(/0+$/, '').replace(/\.$/, '');
@@ -351,33 +354,33 @@ export function medalLevel(code: string): 'b' | 'i' | 'e' | '' {
 }
 
 const medalMeaningKey = {
-    breakthrough: 'time',
-    flagless_breakthrough: 'timeNf',
-    speed: 'speed',
-    flagless_speed: 'speedNf',
-    mastery: 'mastery',
-    flagless_mastery: 'masteryNf',
-    flagless_precision: 'precisionNf',
-    flagged_precision: 'precisionFl',
-    three_flagless_precision: 'threeNf',
-    three_flagged_precision: 'threeFl',
-    registered: 'registered',
-    reviewed: 'reviewed',
-    levels: 'levels',
-    levels_nf: 'levelsNf',
-    modes: 'modes',
-    saolei: 'saolei',
-    shareholder: 'shareholder',
+    [MedalSeries.BREAKTHROUGH]: 'time',
+    [MedalSeries.FLAGLESS_BREAKTHROUGH]: 'timeNf',
+    [MedalSeries.SPEED]: 'speed',
+    [MedalSeries.FLAGLESS_SPEED]: 'speedNf',
+    [MedalSeries.MASTERY]: 'mastery',
+    [MedalSeries.FLAGLESS_MASTERY]: 'masteryNf',
+    [MedalSeries.FLAGLESS_PRECISION]: 'precisionNf',
+    [MedalSeries.FLAGGED_PRECISION]: 'precisionFl',
+    [MedalSeries.THREE_FLAGLESS_PRECISION]: 'threeNf',
+    [MedalSeries.THREE_FLAGGED_PRECISION]: 'threeFl',
+    [MedalSeries.REGISTERED]: 'registered',
+    [MedalSeries.REVIEWED]: 'reviewed',
+    [MedalSeries.LEVELS]: 'levels',
+    [MedalSeries.LEVELS_NF]: 'levelsNf',
+    [MedalSeries.MODES]: 'modes',
+    [MedalSeries.SAOLEI]: 'saolei',
+    [MedalSeries.SHAREHOLDER]: 'shareholder',
 } as const;
 
 const medalFlavorKey = {
-    registered: 'registered',
-    reviewed: 'reviewed',
-    levels: 'levels',
-    levels_nf: 'levelsNf',
-    modes: 'modes',
-    saolei: 'saolei',
-    shareholder: 'shareholder',
+    [MedalSeries.REGISTERED]: 'registered',
+    [MedalSeries.REVIEWED]: 'reviewed',
+    [MedalSeries.LEVELS]: 'levels',
+    [MedalSeries.LEVELS_NF]: 'levelsNf',
+    [MedalSeries.MODES]: 'modes',
+    [MedalSeries.SAOLEI]: 'saolei',
+    [MedalSeries.SHAREHOLDER]: 'shareholder',
 } as const;
 
 function medalCopy(locale: string) {
@@ -390,7 +393,7 @@ function fillMedalText(template: string, values: Record<string, string>) {
 
 function medalPlainStage(series: string, stage: number | null) {
     if (stage == null) return '';
-    if (series === 'breakthrough' || series === 'flagless_breakthrough') return String(stage / 1000);
+    if (series === MedalSeries.BREAKTHROUGH || series === MedalSeries.FLAGLESS_BREAKTHROUGH) return String(stage / 1000);
     return medalStageLabel(series, stage) || String(stage);
 }
 
@@ -404,7 +407,7 @@ export function medalCaption(series: string, code: string, stage: number | null,
     const level = levelCode ? levelNames[levelCode] : '';
     let title = seriesName;
     if (stageName) {
-        if (series.startsWith('three_') || !level) title = chinese ? `${seriesName}·${stageName}` : `${seriesName} · ${stageName}`;
+        if ((series === MedalSeries.THREE_FLAGLESS_PRECISION || series === MedalSeries.THREE_FLAGGED_PRECISION) || !level) title = chinese ? `${seriesName}·${stageName}` : `${seriesName} · ${stageName}`;
         else if (!chinese) title = `${level} ${seriesName} · ${stageName}`;
         else title = `${level}${seriesName}·${stageName}`;
     }
@@ -419,23 +422,23 @@ export function medalCaption(series: string, code: string, stage: number | null,
 }
 
 const medalCodeSeries = [
-    ['ability.time.nf.', 'flagless_breakthrough'],
-    ['ability.time.', 'breakthrough'],
-    ['ability.bvs.nf.', 'flagless_speed'],
-    ['ability.bvs.', 'speed'],
-    ['ability.stnb.nf.', 'flagless_mastery'],
-    ['ability.stnb.', 'mastery'],
-    ['ability.thrp.nf.three', 'three_flagless_precision'],
-    ['ability.thrp.nf.', 'flagless_precision'],
-    ['ability.thrp.fl.three', 'three_flagged_precision'],
-    ['ability.thrp.fl.', 'flagged_precision'],
-    ['novice.realname', 'registered'],
-    ['novice.review', 'reviewed'],
-    ['novice.levels_nf', 'levels_nf'],
-    ['novice.levels', 'levels'],
-    ['novice.modes', 'modes'],
-    ['novice.saolei', 'saolei'],
-    ['shareholder.', 'shareholder'],
+    ['ability.time.nf.', MedalSeries.FLAGLESS_BREAKTHROUGH],
+    ['ability.time.', MedalSeries.BREAKTHROUGH],
+    ['ability.bvs.nf.', MedalSeries.FLAGLESS_SPEED],
+    ['ability.bvs.', MedalSeries.SPEED],
+    ['ability.stnb.nf.', MedalSeries.FLAGLESS_MASTERY],
+    ['ability.stnb.', MedalSeries.MASTERY],
+    ['ability.thrp.nf.three', MedalSeries.THREE_FLAGLESS_PRECISION],
+    ['ability.thrp.nf.', MedalSeries.FLAGLESS_PRECISION],
+    ['ability.thrp.fl.three', MedalSeries.THREE_FLAGGED_PRECISION],
+    ['ability.thrp.fl.', MedalSeries.FLAGGED_PRECISION],
+    ['novice.realname', MedalSeries.REGISTERED],
+    ['novice.review', MedalSeries.REVIEWED],
+    ['novice.levels_nf', MedalSeries.LEVELS_NF],
+    ['novice.levels', MedalSeries.LEVELS],
+    ['novice.modes', MedalSeries.MODES],
+    ['novice.saolei', MedalSeries.SAOLEI],
+    ['shareholder.', MedalSeries.SHAREHOLDER],
 ] as const;
 
 const medalSeriesByCodePrefix = [...medalCodeSeries].sort((left, right) => right[0].length - left[0].length);
@@ -446,29 +449,29 @@ export function medalSeriesFromCode(code: string): string {
 }
 
 const medalArtFolder: Record<string, string> = {
-    breakthrough: 'breakthrough',
-    speed: 'speed',
-    mastery: 'mastery',
-    flagless_breakthrough: 'breakthrough-nf',
-    flagless_speed: 'speed-nf',
-    flagless_mastery: 'mastery-nf',
-    flagless_precision: 'precision-nf',
-    flagged_precision: 'precision',
-    three_flagless_precision: 'precision-nf-three',
-    three_flagged_precision: 'precision-three',
-    registered: 'registered',
-    reviewed: 'reviewed',
-    levels: 'levels',
-    levels_nf: 'levels-nf',
-    modes: 'modes',
-    saolei: 'saolei',
-    shareholder: 'shareholder',
+    [MedalSeries.BREAKTHROUGH]: 'breakthrough',
+    [MedalSeries.SPEED]: 'speed',
+    [MedalSeries.MASTERY]: 'mastery',
+    [MedalSeries.FLAGLESS_BREAKTHROUGH]: 'breakthrough-nf',
+    [MedalSeries.FLAGLESS_SPEED]: 'speed-nf',
+    [MedalSeries.FLAGLESS_MASTERY]: 'mastery-nf',
+    [MedalSeries.FLAGLESS_PRECISION]: 'precision-nf',
+    [MedalSeries.FLAGGED_PRECISION]: 'precision',
+    [MedalSeries.THREE_FLAGLESS_PRECISION]: 'precision-nf-three',
+    [MedalSeries.THREE_FLAGGED_PRECISION]: 'precision-three',
+    [MedalSeries.REGISTERED]: 'registered',
+    [MedalSeries.REVIEWED]: 'reviewed',
+    [MedalSeries.LEVELS]: 'levels',
+    [MedalSeries.LEVELS_NF]: 'levels-nf',
+    [MedalSeries.MODES]: 'modes',
+    [MedalSeries.SAOLEI]: 'saolei',
+    [MedalSeries.SHAREHOLDER]: 'shareholder',
 };
 
 export function medalArtMetal(series: string, code: string, stage: number | null): 'b' | 'i' | 'e' {
     const level = medalLevel(code);
     if (level) return level;
-    if (series !== 'shareholder') return 'e';
+    if (series !== MedalSeries.SHAREHOLDER) return 'e';
     // 越晚偏铜，居中偏银，最早保持金色。
     if (stage != null && stage <= 1000) return 'e';
     if (stage != null && stage <= 10000) return 'i';
@@ -481,7 +484,7 @@ export function medalArtBadge(series: string): boolean {
 
 /** 叠在底图上的短数字。称号里的 Sub 前缀和系列名仍由页面文案显示。 */
 export function medalArtPlate(series: string, stage: number | null): string {
-    if (stage == null || noviceSeries.has(series) || series === 'shareholder') return '';
+    if (stage == null || noviceSeries.has(series) || series === MedalSeries.SHAREHOLDER) return '';
     if (timeSeries.has(series)) return String(stage / 1000);
     if (speedSeries.has(series)) return trimScaled(stage, 10000);
     if (precisionSeries.has(series)) return trimScaled(stage, 100000);

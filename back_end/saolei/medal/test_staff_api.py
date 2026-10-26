@@ -5,10 +5,11 @@ from django.db import transaction
 from django.test import override_settings, TestCase
 from django.utils import timezone
 
+from config.text_choices import Medal_TextChoices
 from userprofile.models import UserProfile
 from .models import MedalDefinition, MedalGrant
 from .services import ensure_basic_definitions, evaluate_player
-from .utils import DIRECTION_ASC, DIRECTION_DESC, KIND_MANUAL, KIND_PB, KINDS, NOVICE_REALNAME
+from .utils import NOVICE_REALNAME
 
 
 @override_settings(
@@ -21,12 +22,12 @@ class MedalStaffApiTests(TestCase):
         self.user = UserProfile.objects.create_user(username='medal_staff_target', email='medal-staff-target@example.com')
         self.staff = UserProfile.objects.create_user(username='medal_operator', email='medal-operator@example.com', is_staff=True)
         self.definition = MedalDefinition.objects.create(
-            code='ability.staff.time.b', series='能力', kind=KIND_PB, metric='timems',
-            direction=DIRECTION_DESC, level='b', thresholds=[60000, 50000], active=True,
+            code='ability.staff.time.b', series='能力', kind=Medal_TextChoices.Kind.PB, metric='timems',
+            direction=Medal_TextChoices.Direction.DESC, level='b', thresholds=[60000, 50000], active=True,
         )
         self.manual = MedalDefinition.objects.create(
-            code='manual.staff', series='纪念', kind=KIND_MANUAL, metric='manual',
-            direction=DIRECTION_ASC, thresholds=[1, 2], active=True,
+            code='manual.staff', series='纪念', kind=Medal_TextChoices.Kind.MANUAL, metric='manual',
+            direction=Medal_TextChoices.Direction.ASC, thresholds=[1, 2], active=True,
         )
         self.client.force_login(self.staff)
 
@@ -57,12 +58,12 @@ class MedalStaffApiTests(TestCase):
 
     def test_staff_catalog_includes_hidden_and_inactive_definitions(self):
         hidden = MedalDefinition.objects.create(
-            code='manual.staff.hidden', series='隐藏', kind=KIND_MANUAL, metric='manual',
-            direction=DIRECTION_ASC, thresholds=[1], active=True, hidden=True,
+            code='manual.staff.hidden', series='隐藏', kind=Medal_TextChoices.Kind.MANUAL, metric='manual',
+            direction=Medal_TextChoices.Direction.ASC, thresholds=[1], active=True, hidden=True,
         )
         inactive = MedalDefinition.objects.create(
-            code='manual.staff.disabled', series='纪念', kind=KIND_MANUAL, metric='manual',
-            direction=DIRECTION_ASC, thresholds=[1], active=False,
+            code='manual.staff.disabled', series='纪念', kind=Medal_TextChoices.Kind.MANUAL, metric='manual',
+            direction=Medal_TextChoices.Direction.ASC, thresholds=[1], active=False,
         )
         response = self.client.get('/api/medal/staff/catalog')
         self.assertEqual(response.status_code, 200, response.content)
@@ -234,11 +235,11 @@ class MedalStaffApiTests(TestCase):
         self.assertEqual(summary['history'], [])
 
     def test_legacy_grant_supports_all_active_kinds(self):
-        for kind in KINDS:
+        for kind in Medal_TextChoices.Kind.values:
             with self.subTest(kind=kind):
                 definition = MedalDefinition.objects.create(
                     code=f'staff.kind.{kind}', series='测试', kind=kind, metric='test',
-                    direction=DIRECTION_ASC, thresholds=[1, 2], active=True,
+                    direction=Medal_TextChoices.Direction.ASC, thresholds=[1, 2], active=True,
                 )
                 response = self.post_json('staff/grants', {
                     'user_id': self.user.id, 'code': definition.code, 'reason': '兼容入口',

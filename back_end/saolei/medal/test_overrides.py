@@ -8,13 +8,13 @@ from django.test import override_settings, skipUnlessDBFeature, TransactionTestC
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
-from config.text_choices import MS_TextChoices
+from config.text_choices import Medal_TextChoices, MS_TextChoices
 from userprofile.models import UserProfile
 from videomanager.models import VideoModel
 from . import services, tests
 from .models import MedalDefinition, MedalGrant, MedalOverride, MedalOverrideLog, PlayerProgress
 from .services import ensure_basic_definitions, evaluate_player, grant_manual, MedalError, player_summary, revoke_manual, set_player_override, write_stage
-from .utils import DIRECTION_ASC, KIND_MANUAL, NOVICE_REALNAME
+from .utils import NOVICE_REALNAME
 
 
 class OverrideFixture:
@@ -160,7 +160,7 @@ class MedalOverrideTests(OverrideFixture, tests.MedalTestCase):
         self.assertFalse(MedalOverrideLog.objects.filter(user=self.user).exists())
 
     def test_legacy_entry_points_use_persistent_override_without_fake_progress(self):
-        manual = MedalDefinition.objects.create(code='manual.override', series='纪念', kind=KIND_MANUAL, metric='manual', direction=DIRECTION_ASC, thresholds=[], active=True)
+        manual = MedalDefinition.objects.create(code='manual.override', series='纪念', kind=Medal_TextChoices.Kind.MANUAL, metric='manual', direction=Medal_TextChoices.Direction.ASC, thresholds=[], active=True)
         granted = grant_manual(self.actor, manual.code, self.user.id, '兼容授予', self.earlier)
         self.assertEqual(granted.stage, 1)
         self.assertFalse(PlayerProgress.objects.filter(user=self.user, code=manual.code).exists())

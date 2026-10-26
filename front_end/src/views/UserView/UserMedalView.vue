@@ -70,6 +70,7 @@ import BaseTooltip from '@/components/common/BaseTooltip.vue';
 import type { MedalItem, PlayerMedals } from '@/services/medalService';
 import { medalCaption, medalLevel, medalSeriesLabel, medalStageLabel, refreshPlayerMedals, saveMedalPins, subscribePlayerMedals } from '@/services/medalService';
 import { store } from '@/store';
+import { MedalSeries } from '@/utils/medal_const';
 
 type MedalCategory = 'ability' | 'novice' | 'practice' | 'contest' | 'contribution' | 'other';
 interface MedalSection { series: string; items: MedalItem[] }
@@ -78,12 +79,12 @@ interface MedalCategoryGroup { id: MedalCategory; sections: MedalSection[] }
 const categoryOrder: MedalCategory[] = ['ability', 'novice', 'practice', 'contest', 'contribution', 'other'];
 const levelRank: Record<string, number> = { b: 0, i: 1, e: 2 };
 const seriesByCategory: Record<MedalCategory, string[]> = {
-    ability: ['breakthrough', 'speed', 'mastery', 'flagless_breakthrough', 'flagless_speed', 'flagless_mastery', 'flagless_precision', 'flagged_precision', 'three_flagless_precision', 'three_flagged_precision'],
-    novice: ['registered', 'reviewed', 'levels', 'levels_nf', 'modes', 'saolei'],
+    ability: [MedalSeries.BREAKTHROUGH, MedalSeries.SPEED, MedalSeries.MASTERY, MedalSeries.FLAGLESS_BREAKTHROUGH, MedalSeries.FLAGLESS_SPEED, MedalSeries.FLAGLESS_MASTERY, MedalSeries.FLAGLESS_PRECISION, MedalSeries.FLAGGED_PRECISION, MedalSeries.THREE_FLAGLESS_PRECISION, MedalSeries.THREE_FLAGGED_PRECISION],
+    novice: [MedalSeries.REGISTERED, MedalSeries.REVIEWED, MedalSeries.LEVELS, MedalSeries.LEVELS_NF, MedalSeries.MODES, MedalSeries.SAOLEI],
     practice: [],
     contest: [],
     contribution: [],
-    other: ['shareholder'],
+    other: [MedalSeries.SHAREHOLDER],
 };
 
 const summary = ref<PlayerMedals | null>(null);

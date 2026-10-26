@@ -4,12 +4,12 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
 from accountlink.models import AccountLinkQueue, Platform
-from config.text_choices import MS_TextChoices
+from config.text_choices import Medal_TextChoices, MS_TextChoices
 from userprofile.models import UserProfile
 from videomanager.models import STNB_COEFFICIENTS, VideoModel
 from .cache import invalidate_catalog, read_catalog, read_player_states, write_catalog, write_player_states
 from .models import MedalDefinition, MedalGrant, MedalOverride, MedalOverrideLog, MedalPins, MedalScan, PlayerMedalSummary, PlayerProgress
-from .utils import basic_definitions, BVS_SCALE, DIRECTION_DESC, KIND_COMPOSITE, KIND_EVENT_PLACE, KIND_GSC_PLACE, KIND_GSC_STAT, KIND_MANUAL, KIND_MIN_VIDEO_ID, KIND_ONCE, KIND_PB, MAX_PINS, next_threshold, NOVICE_LEVELS, NOVICE_LEVELS_NF, NOVICE_MODES, NOVICE_REALNAME, NOVICE_REVIEW, NOVICE_SAOLEI, open_modes, reached_asc_stage, reached_desc_stage, scale_units, SERIES_SHAREHOLDER, SHAREHOLDER_CODE, SHAREHOLDER_THRESHOLDS, STANDARD_LEVELS, STYLE_FL, STYLE_NF, threshold_index, THRP_SCALE, VIDEO_ONCE_CODES
+from .utils import basic_definitions, BVS_SCALE, MAX_PINS, next_threshold, NOVICE_LEVELS, NOVICE_LEVELS_NF, NOVICE_MODES, NOVICE_REALNAME, NOVICE_REVIEW, NOVICE_SAOLEI, open_modes, reached_asc_stage, reached_desc_stage, scale_units, SHAREHOLDER_CODE, SHAREHOLDER_THRESHOLDS, STANDARD_LEVELS, threshold_index, THRP_SCALE, VIDEO_ONCE_CODES
 
 
 class MedalError(Exception):
@@ -47,7 +47,7 @@ def ensure_shareholder_definition():
     definition, _created = MedalDefinition.objects.get_or_create(
         code=SHAREHOLDER_CODE,
         defaults={
-            'series': SERIES_SHAREHOLDER, 'kind': KIND_MIN_VIDEO_ID, 'metric': 'video_id', 'direction': DIRECTION_DESC,
+            'series': Medal_TextChoices.Series.SHAREHOLDER, 'kind': Medal_TextChoices.Kind.MIN_VIDEO_ID, 'metric': 'video_id', 'direction': Medal_TextChoices.Direction.DESC,
             'thresholds': list(SHAREHOLDER_THRESHOLDS), 'score_by_stage': [], 'active': True,
         },
     )
@@ -134,7 +134,7 @@ class _EvaluationState:
         self.changed = {}
         self.history_dirty = set()
         for row in self.progress.values():
-            if row.definition.kind == KIND_PB and (row.current_value is not None or row.best_video_id is not None):
+            if row.definition.kind == Medal_TextChoices.Kind.PB and (row.current_value is not None or row.best_video_id is not None):
                 row.current_value = None
                 row.best_video = None
                 self.changed[row.code] = row
@@ -153,7 +153,7 @@ class _EvaluationState:
 
 def _save_progress(user, definition, stage_value, current_value, extra, best_video, state=None):
     # 能力勋章只保留自然档位，成绩及录像由授予证据提供，不另存一份 PB。
-    if definition.kind == KIND_PB:
+    if definition.kind == Medal_TextChoices.Kind.PB:
         current_value, best_video = None, None
     progress = state.progress.get(definition.code) if state is not None else PlayerProgress.objects.filter(user=user, code=definition.code).first()
     if progress is None:
@@ -229,7 +229,7 @@ def write_stage(user, definition, scope_key='', stage=0, current_value=UNSET, gr
 def _write_stage(user, definition, scope_key, stage, current_value, granted_at, video, participant, evidence, best_video, extra, keep_evidence, state):
     """按当前阶段改写同一枚授予。0 表示一档都不够，撤销这一行。人工纪念不在这里撤销。"""
     new_rank = threshold_index(definition.thresholds, stage)
-    if definition.kind == KIND_MANUAL and new_rank < 0:
+    if definition.kind == Medal_TextChoices.Kind.MANUAL and new_rank < 0:
         return MedalGrant.objects.filter(user=user, definition_code=definition.code, scope_key=scope_key).first()
 
     stage_value = stage if new_rank >= 0 else 0
@@ -294,7 +294,7 @@ def _medal_item(definition, grant, progress):
     thresholds = definition['thresholds']
     stage = grant['stage'] if grant is not None else None
     value = progress if grant is None or grant['scope_key'] == '' else None
-    if definition['kind'] == KIND_PB:
+    if definition['kind'] == Medal_TextChoices.Kind.PB:
         value = None
     index = threshold_index(thresholds, stage) if stage else -1
     scores = definition['score_by_stage']
@@ -538,7 +538,7 @@ def grant_manual(actor, code, user_id, reason, granted_at, stage=None, scope_key
     definition = MedalDefinition.objects.filter(pk=code).first()
     if definition is None:
         raise MedalError('definition')
-    if stage is None and definition.kind == KIND_MANUAL:
+    if stage is None and definition.kind == Medal_TextChoices.Kind.MANUAL:
         stage = definition.thresholds[0] if definition.thresholds else 1
     return set_player_override(
         actor, user_id, code, scope_key, 'grant', reason, stage=stage, granted_at=granted_at,
@@ -594,7 +594,7 @@ def _official_videos(user):
 
 
 def _style_key(definition):
-    if definition.style in (STYLE_NF, STYLE_FL):
+    if definition.style in (Medal_TextChoices.Style.NF, Medal_TextChoices.Style.FL):
         return definition.style
     return 'any'
 
@@ -608,9 +608,9 @@ def _pb_queryset(user, level):
 
 def _thrp_filter(style):
     base = Q(ce__gt=0, bv__isnull=False)
-    if style == STYLE_NF:
+    if style == Medal_TextChoices.Style.NF:
         return base & Q(right_ce=0, ce__gte=F('bv'))
-    if style == STYLE_FL:
+    if style == Medal_TextChoices.Style.FL:
         return base & Q(right_ce__gt=0)
     return base
 
@@ -620,9 +620,9 @@ def _qualified(user, definition):
     style = _style_key(definition)
     if definition.metric == 'thrp':
         return queryset.filter(_thrp_filter(style))
-    if style == STYLE_NF:
+    if style == Medal_TextChoices.Style.NF:
         return queryset.filter(right_ce=0)
-    if style == STYLE_FL:
+    if style == Medal_TextChoices.Style.FL:
         return queryset.filter(right_ce__gt=0)
     return queryset
 
@@ -633,9 +633,9 @@ def _video_qualifies(video, definition, user_id):
     if video.state != MS_TextChoices.State.OFFICIAL or video.mode != MS_TextChoices.Mode.STD or video.level != definition.level:
         return False
     style = _style_key(definition)
-    if style == STYLE_NF and video.right_ce != 0:
+    if style == Medal_TextChoices.Style.NF and video.right_ce != 0:
         return False
-    if style == STYLE_FL and (video.right_ce is None or video.right_ce <= 0):
+    if style == Medal_TextChoices.Style.FL and (video.right_ce is None or video.right_ce <= 0):
         return False
     if definition.metric == 'timems':
         return video.timems is not None
@@ -647,7 +647,7 @@ def _video_qualifies(video, definition, user_id):
         return False
     if video.thrp is None or video.ce is None or video.bv is None or video.ce <= 0:
         return False
-    if style == STYLE_NF and video.ce < video.bv:
+    if style == Medal_TextChoices.Style.NF and video.ce < video.bv:
         return False
     return True
 
@@ -710,7 +710,7 @@ def _aggregate_level(user, level):
     return queryset.aggregate(
         time_any=Min('timems'), bvs_any=Max('bvs'), iqg_any=Max('iqg'),
         time_nf=Min('timems', filter=nf), bvs_nf=Max('bvs', filter=nf), iqg_nf=Max('iqg', filter=nf),
-        thrp_nf=Max('thrp', filter=_thrp_filter(STYLE_NF)), thrp_fl=Max('thrp', filter=_thrp_filter(STYLE_FL)),
+        thrp_nf=Max('thrp', filter=_thrp_filter(Medal_TextChoices.Style.NF)), thrp_fl=Max('thrp', filter=_thrp_filter(Medal_TextChoices.Style.FL)),
     )
 
 
@@ -718,17 +718,17 @@ def _aggregate_raw(stats, definition):
     style = _style_key(definition)
     metric = definition.metric
     if metric == 'timems':
-        return stats['time_nf'] if style == STYLE_NF else stats['time_any']
+        return stats['time_nf'] if style == Medal_TextChoices.Style.NF else stats['time_any']
     if metric == 'bvs':
-        return stats['bvs_nf'] if style == STYLE_NF else stats['bvs_any']
+        return stats['bvs_nf'] if style == Medal_TextChoices.Style.NF else stats['bvs_any']
     if metric == 'stnb':
-        iqg = stats['iqg_nf'] if style == STYLE_NF else stats['iqg_any']
+        iqg = stats['iqg_nf'] if style == Medal_TextChoices.Style.NF else stats['iqg_any']
         coefficient = STNB_COEFFICIENTS.get(definition.level)
         if iqg is None or coefficient is None:
             return None
         return coefficient * iqg
     if metric == 'thrp':
-        return stats['thrp_nf'] if style == STYLE_NF else stats['thrp_fl'] if style == STYLE_FL else None
+        return stats['thrp_nf'] if style == Medal_TextChoices.Style.NF else stats['thrp_fl'] if style == Medal_TextChoices.Style.FL else None
     return None
 
 
@@ -778,7 +778,7 @@ def _apply_pb(user, definition, stats, progress, grant, state=None, overridden=F
 
 def evaluate_pb(user, state=None, levels=None):
     """全量或失效重算时按难度聚合判定档位，聚合值只用于本次计算，不保存最佳成绩及录像。"""
-    definitions = [row for row in state.definitions_of(KIND_PB) if row.metric in ('timems', 'bvs', 'stnb', 'thrp') and row.level in STANDARD_LEVELS] if state is not None else list(MedalDefinition.objects.filter(active=True, kind=KIND_PB, metric__in=['timems', 'bvs', 'stnb', 'thrp'], level__in=STANDARD_LEVELS))
+    definitions = [row for row in state.definitions_of(Medal_TextChoices.Kind.PB) if row.metric in ('timems', 'bvs', 'stnb', 'thrp') and row.level in STANDARD_LEVELS] if state is not None else list(MedalDefinition.objects.filter(active=True, kind=Medal_TextChoices.Kind.PB, metric__in=['timems', 'bvs', 'stnb', 'thrp'], level__in=STANDARD_LEVELS))
     if not definitions:
         return
     codes = [item.code for item in definitions]
@@ -923,7 +923,7 @@ def _write_once(user, definition, met, state=None):
 def evaluate_once(user, state=None):
     """实名、过审、全级别、全模式，以及扫雷网已验证。其他平台这一步不发。"""
     codes = [NOVICE_REALNAME, NOVICE_REVIEW, NOVICE_LEVELS, NOVICE_LEVELS_NF, NOVICE_MODES, NOVICE_SAOLEI]
-    definitions = {row.code: row for row in state.definitions_of(KIND_ONCE)} if state is not None else {item.code: item for item in MedalDefinition.objects.filter(active=True, kind=KIND_ONCE, code__in=codes)}
+    definitions = {row.code: row for row in state.definitions_of(Medal_TextChoices.Kind.ONCE)} if state is not None else {item.code: item for item in MedalDefinition.objects.filter(active=True, kind=Medal_TextChoices.Kind.ONCE, code__in=codes)}
     for code in codes:
         definition = definitions.get(code)
         if definition is None:
@@ -933,7 +933,7 @@ def evaluate_once(user, state=None):
 
 def evaluate_composite(user, state=None):
     """三阶档位读取自然进度，授予时查找三个难度各自最早达标的证据。"""
-    definitions = [row for row in state.definitions_of(KIND_COMPOSITE) if row.metric == 'thrp'] if state is not None else list(MedalDefinition.objects.filter(active=True, kind=KIND_COMPOSITE, metric='thrp'))
+    definitions = [row for row in state.definitions_of(Medal_TextChoices.Kind.COMPOSITE) if row.metric == 'thrp'] if state is not None else list(MedalDefinition.objects.filter(active=True, kind=Medal_TextChoices.Kind.COMPOSITE, metric='thrp'))
     if not definitions:
         return
     codes = [code for definition in definitions for code in (definition.depends_on or [])]
@@ -977,11 +977,11 @@ def _history_dep_stage(definition, stage):
 def _history_candidate(user, definition, stage, video, definitions):
     if video.player_id != user.id:
         return False
-    if definition.kind == KIND_MIN_VIDEO_ID:
+    if definition.kind == Medal_TextChoices.Kind.MIN_VIDEO_ID:
         return video.id < stage
-    if definition.kind == KIND_PB:
+    if definition.kind == Medal_TextChoices.Kind.PB:
         return _video_qualifies(video, definition, user.id) and _meets_stage(definition, _raw_value(video, definition), stage)
-    if definition.kind == KIND_ONCE:
+    if definition.kind == Medal_TextChoices.Kind.ONCE:
         if video.state != MS_TextChoices.State.OFFICIAL:
             return False
         if definition.code == NOVICE_REVIEW:
@@ -1002,7 +1002,7 @@ def _history_needs_refresh(user, definition, grant, definitions, video_ids, vide
     watched = set(video_ids)
     evidence = grant.evidence if isinstance(grant.evidence, dict) else {}
     proof_ids = {grant.video_id, *evidence.get('video_ids', [])}
-    multiple = definition.kind == KIND_COMPOSITE or definition.code in (NOVICE_LEVELS, NOVICE_LEVELS_NF, NOVICE_MODES)
+    multiple = definition.kind == Medal_TextChoices.Kind.COMPOSITE or definition.code in (NOVICE_LEVELS, NOVICE_LEVELS_NF, NOVICE_MODES)
     for entry in grant.stage_log or []:
         proof_ids.add(entry.get('evidence_id'))
         proof_ids.update(entry.get('video_ids', []))
@@ -1024,11 +1024,11 @@ def _history_videos(user, definition, stage, definitions, memo):
     key = (definition.code, stage)
     if key in memo:
         return memo[key]
-    if definition.kind == KIND_PB:
+    if definition.kind == Medal_TextChoices.Kind.PB:
         videos = [_earliest_for_stage(user, definition, stage)]
-    elif definition.kind == KIND_MIN_VIDEO_ID:
+    elif definition.kind == Medal_TextChoices.Kind.MIN_VIDEO_ID:
         videos = [VideoModel.objects.filter(player=user, id__lt=stage).order_by('upload_time', 'id').first()]
-    elif definition.kind == KIND_COMPOSITE:
+    elif definition.kind == Medal_TextChoices.Kind.COMPOSITE:
         videos = []
         for code in definition.depends_on or []:
             dependency = definitions.get(code)
@@ -1059,7 +1059,7 @@ def _sync_video_history(user, definition, grant, definitions, memo):
             continue
         completing = _completing_video(videos)
         entry = {'stage': stage, 'at': completing.upload_time.isoformat(), 'evidence_id': completing.id}
-        if definition.kind == KIND_COMPOSITE or definition.code in (NOVICE_LEVELS, NOVICE_LEVELS_NF, NOVICE_MODES):
+        if definition.kind == Medal_TextChoices.Kind.COMPOSITE or definition.code in (NOVICE_LEVELS, NOVICE_LEVELS_NF, NOVICE_MODES):
             entry['video_ids'] = [video.id for video in videos]
         entries.append((completing.upload_time, threshold_index(definition.thresholds, stage), entry))
         if stage == grant.stage:
@@ -1068,12 +1068,12 @@ def _sync_video_history(user, definition, grant, definitions, memo):
         return
     entries.sort(key=lambda row: (row[0], row[1]))
     completing, entry = current
-    evidence = {'video_ids': entry['video_ids']} if definition.kind == KIND_COMPOSITE else {'video_id': completing.id}
+    evidence = {'video_ids': entry['video_ids']} if definition.kind == Medal_TextChoices.Kind.COMPOSITE else {'video_id': completing.id}
     if 'video_ids' in entry:
         evidence['video_ids'] = entry['video_ids']
     values = {
         'granted_at': entries[0][0], 'stage_log': [row[2] for row in entries], 'evidence': evidence,
-        'video_id': None if definition.kind == KIND_COMPOSITE else completing.id,
+        'video_id': None if definition.kind == Medal_TextChoices.Kind.COMPOSITE else completing.id,
     }
     fields = []
     for field, value in values.items():
@@ -1093,10 +1093,10 @@ def _refresh_video_history(user, state, video_ids=None, videos=None):
         if definition is None or grant.revoked_at is not None or (code, '') in state.overrides:
             continue
         supported = (
-            definition.kind == KIND_MIN_VIDEO_ID
-            or (definition.kind == KIND_PB and definition.metric in ('timems', 'bvs', 'stnb', 'thrp') and definition.level in STANDARD_LEVELS)
-            or (definition.kind == KIND_COMPOSITE and definition.metric == 'thrp')
-            or (definition.kind == KIND_ONCE and code in VIDEO_ONCE_CODES)
+            definition.kind == Medal_TextChoices.Kind.MIN_VIDEO_ID
+            or (definition.kind == Medal_TextChoices.Kind.PB and definition.metric in ('timems', 'bvs', 'stnb', 'thrp') and definition.level in STANDARD_LEVELS)
+            or (definition.kind == Medal_TextChoices.Kind.COMPOSITE and definition.metric == 'thrp')
+            or (definition.kind == Medal_TextChoices.Kind.ONCE and code in VIDEO_ONCE_CODES)
         )
         if not supported:
             continue
@@ -1251,7 +1251,7 @@ def _refresh_novice(user, state, videos, invalidate_once):
     """已经授予的跳过。未授予时用状态里的级别 / 模式集合并集；凑齐才查一次证据。"""
     codes = (NOVICE_REVIEW, NOVICE_LEVELS, NOVICE_LEVELS_NF, NOVICE_MODES)
     revoked = {key for key, row in state.overrides.items() if row.mode == 'revoke'}
-    definitions = {row.code: row for row in state.definitions_of(KIND_ONCE)}
+    definitions = {row.code: row for row in state.definitions_of(Medal_TextChoices.Kind.ONCE)}
     for code in codes:
         if (code, '') in revoked:
             continue
@@ -1298,7 +1298,7 @@ def _refresh_incremental(user, video_ids, degrade_levels, invalidate_once):
     found = list(VideoModel.objects.filter(pk__in=video_ids))
     found_by_id = {video.id: video for video in found}
     state = _EvaluationState(user)
-    definitions = [row for row in state.definitions_of(KIND_PB) if row.metric in ('timems', 'bvs', 'stnb', 'thrp') and row.level in STANDARD_LEVELS]
+    definitions = [row for row in state.definitions_of(Medal_TextChoices.Kind.PB) if row.metric in ('timems', 'bvs', 'stnb', 'thrp') and row.level in STANDARD_LEVELS]
     by_code = {item.code: item for item in definitions}
     forced = set(degrade_levels)
     forced.update(_invalidated_levels(user, state, by_code, video_ids, found_by_id))
@@ -1364,7 +1364,7 @@ def set_player_override(actor, user_id, code, scope_key, mode, reason, stage=Non
         raise MedalError('definition')
     if mode == 'auto' and previous is None:
         return grant
-    scoped_kinds = (KIND_MANUAL, KIND_EVENT_PLACE, KIND_GSC_STAT, KIND_GSC_PLACE)
+    scoped_kinds = (Medal_TextChoices.Kind.MANUAL, Medal_TextChoices.Kind.EVENT_PLACE, Medal_TextChoices.Kind.GSC_STAT, Medal_TextChoices.Kind.GSC_PLACE)
     bad_scope = scope_key != scope_key.strip() or (scope_key and definition is not None and definition.kind not in scoped_kinds)
     if bad_scope and mode != 'auto' and not (mode == 'revoke' and (previous is not None or grant is not None)):
         raise MedalError('scope')
@@ -1375,7 +1375,7 @@ def set_player_override(actor, user_id, code, scope_key, mode, reason, stage=Non
             raise MedalError('definition')
         if not definition.active:
             raise MedalError('inactive')
-        thresholds = definition.thresholds or ([1] if definition.kind == KIND_MANUAL else [])
+        thresholds = definition.thresholds or ([1] if definition.kind == Medal_TextChoices.Kind.MANUAL else [])
         if type(stage) is not int or stage <= 0 or stage > 2147483647 or stage not in thresholds:
             raise MedalError('stage')
         at = granted_at or timezone.now()

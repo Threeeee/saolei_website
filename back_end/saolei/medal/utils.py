@@ -5,27 +5,12 @@ from math import floor
 from config.text_choices import Medal_TextChoices, MS_TextChoices
 from speedranking.saolei.utils import BVS_SCALE
 
-KIND_PB = Medal_TextChoices.Kind.PB
-KIND_COMPOSITE = Medal_TextChoices.Kind.COMPOSITE
-KIND_ONCE = Medal_TextChoices.Kind.ONCE
-KIND_COUNT = Medal_TextChoices.Kind.COUNT
-KIND_BV_SET = Medal_TextChoices.Kind.BV_SET
-KIND_CELL_MASK = Medal_TextChoices.Kind.CELL_MASK
-KIND_EVENT_PLACE = Medal_TextChoices.Kind.EVENT_PLACE
-KIND_GSC_STAT = Medal_TextChoices.Kind.GSC_STAT
-KIND_GSC_PLACE = Medal_TextChoices.Kind.GSC_PLACE
-KIND_MANUAL = Medal_TextChoices.Kind.MANUAL
-KIND_MIN_VIDEO_ID = Medal_TextChoices.Kind.MIN_VIDEO_ID
-KINDS = Medal_TextChoices.Kind.values
 SHAREHOLDER_CODE = 'shareholder.origin'
 SHAREHOLDER_THRESHOLDS = [100000, 10000, 1000]
-DIRECTION_ASC = Medal_TextChoices.Direction.ASC
-DIRECTION_DESC = Medal_TextChoices.Direction.DESC
-DIRECTIONS = Medal_TextChoices.Direction.values
 MAX_PINS = 6
-CATALOG_CACHE_KEY = 'medal:catalog:v2'
+CATALOG_CACHE_KEY = 'medal:catalog:v3'
 CATALOG_CACHE_SECONDS = 300
-STATE_CACHE_KEY = 'medal:display:v3:{user_id}'
+STATE_CACHE_KEY = 'medal:display:v4:{user_id}'
 STATE_CACHE_SECONDS = 300
 STATE_ID_LIMIT = 100
 GRANT_PAGE_SIZE = 20
@@ -35,9 +20,6 @@ THRP_SCALE = 100000
 STANDARD_LEVELS = (
     MS_TextChoices.Level.BEGINNER, MS_TextChoices.Level.INTERMEDIATE, MS_TextChoices.Level.EXPERT,
 )
-STYLE_ANY = Medal_TextChoices.Style.ANY
-STYLE_NF = Medal_TextChoices.Style.NF
-STYLE_FL = Medal_TextChoices.Style.FL
 NOVICE_REALNAME = 'novice.realname'
 NOVICE_REVIEW = 'novice.review'
 NOVICE_LEVELS = 'novice.levels'
@@ -45,23 +27,6 @@ NOVICE_LEVELS_NF = 'novice.levels_nf'
 NOVICE_MODES = 'novice.modes'
 NOVICE_SAOLEI = 'novice.saolei'
 VIDEO_ONCE_CODES = (NOVICE_REVIEW, NOVICE_LEVELS, NOVICE_LEVELS_NF, NOVICE_MODES)
-SERIES_REALNAME = Medal_TextChoices.Series.REGISTERED
-SERIES_REVIEW = Medal_TextChoices.Series.REVIEWED
-SERIES_LEVELS = Medal_TextChoices.Series.LEVELS
-SERIES_LEVELS_NF = Medal_TextChoices.Series.LEVELS_NF
-SERIES_MODES = Medal_TextChoices.Series.MODES
-SERIES_SAOLEI = Medal_TextChoices.Series.SAOLEI
-SERIES_BREAKTHROUGH = Medal_TextChoices.Series.BREAKTHROUGH
-SERIES_SPEED = Medal_TextChoices.Series.SPEED
-SERIES_MASTERY = Medal_TextChoices.Series.MASTERY
-SERIES_FLAGLESS_BREAKTHROUGH = Medal_TextChoices.Series.FLAGLESS_BREAKTHROUGH
-SERIES_FLAGLESS_SPEED = Medal_TextChoices.Series.FLAGLESS_SPEED
-SERIES_FLAGLESS_MASTERY = Medal_TextChoices.Series.FLAGLESS_MASTERY
-SERIES_FLAGLESS_PRECISION = Medal_TextChoices.Series.FLAGLESS_PRECISION
-SERIES_FLAGGED_PRECISION = Medal_TextChoices.Series.FLAGGED_PRECISION
-SERIES_THREE_FLAGLESS = Medal_TextChoices.Series.THREE_FLAGLESS_PRECISION
-SERIES_THREE_FLAGGED = Medal_TextChoices.Series.THREE_FLAGGED_PRECISION
-SERIES_SHAREHOLDER = Medal_TextChoices.Series.SHAREHOLDER
 TIME_SECONDS = {
     MS_TextChoices.Level.BEGINNER: (20, 15, 12, 10, 8, 6, 5, 4, 3, 2, 1),
     MS_TextChoices.Level.INTERMEDIATE: (150, 100, 80, 60, 50, 40, 30, 25, 20, 15, 12, 10),
@@ -165,41 +130,41 @@ def _spec(**kwargs):
 
 
 def _ability(code, series, metric, direction, level, style, thresholds):
-    return _spec(code=code, series=series, kind=KIND_PB, metric=metric, direction=direction, level=level, style=style, thresholds=thresholds)
+    return _spec(code=code, series=series, kind=Medal_TextChoices.Kind.PB, metric=metric, direction=direction, level=level, style=style, thresholds=thresholds)
 
 
 def basic_definitions():
     """新手和能力定义。已有行的阈值不从这里回写，系列名由 ensure_basic_definitions 对齐。"""
     rows = [
-        _spec(code=NOVICE_REALNAME, series=SERIES_REALNAME, kind=KIND_ONCE, metric='realname', direction=DIRECTION_ASC, thresholds=[1]),
-        _spec(code=NOVICE_REVIEW, series=SERIES_REVIEW, kind=KIND_ONCE, metric='review', direction=DIRECTION_ASC, thresholds=[1]),
-        _spec(code=NOVICE_LEVELS, series=SERIES_LEVELS, kind=KIND_ONCE, metric='levels', direction=DIRECTION_ASC, thresholds=[1]),
-        _spec(code=NOVICE_LEVELS_NF, series=SERIES_LEVELS_NF, kind=KIND_ONCE, metric='levels_nf', direction=DIRECTION_ASC, thresholds=[1]),
+        _spec(code=NOVICE_REALNAME, series=Medal_TextChoices.Series.REGISTERED, kind=Medal_TextChoices.Kind.ONCE, metric='realname', direction=Medal_TextChoices.Direction.ASC, thresholds=[1]),
+        _spec(code=NOVICE_REVIEW, series=Medal_TextChoices.Series.REVIEWED, kind=Medal_TextChoices.Kind.ONCE, metric='review', direction=Medal_TextChoices.Direction.ASC, thresholds=[1]),
+        _spec(code=NOVICE_LEVELS, series=Medal_TextChoices.Series.LEVELS, kind=Medal_TextChoices.Kind.ONCE, metric='levels', direction=Medal_TextChoices.Direction.ASC, thresholds=[1]),
+        _spec(code=NOVICE_LEVELS_NF, series=Medal_TextChoices.Series.LEVELS_NF, kind=Medal_TextChoices.Kind.ONCE, metric='levels_nf', direction=Medal_TextChoices.Direction.ASC, thresholds=[1]),
         _spec(
-            code=NOVICE_MODES, series=SERIES_MODES, kind=KIND_ONCE, metric='modes', direction=DIRECTION_ASC, thresholds=[1],
+            code=NOVICE_MODES, series=Medal_TextChoices.Series.MODES, kind=Medal_TextChoices.Kind.ONCE, metric='modes', direction=Medal_TextChoices.Direction.ASC, thresholds=[1],
             scope={'modes': open_modes()},
         ),
         _spec(
-            code=NOVICE_SAOLEI, series=SERIES_SAOLEI, kind=KIND_ONCE, metric='platform', direction=DIRECTION_ASC, thresholds=[1],
+            code=NOVICE_SAOLEI, series=Medal_TextChoices.Series.SAOLEI, kind=Medal_TextChoices.Kind.ONCE, metric='platform', direction=Medal_TextChoices.Direction.ASC, thresholds=[1],
             scope={'platform': 'c'},
         ),
     ]
     for level in STANDARD_LEVELS:
-        rows.append(_ability(f'ability.time.{level}', SERIES_BREAKTHROUGH, 'timems', DIRECTION_DESC, level, STYLE_ANY, [second * 1000 for second in TIME_SECONDS[level]]))
-        rows.append(_ability(f'ability.bvs.{level}', SERIES_SPEED, 'bvs', DIRECTION_ASC, level, STYLE_ANY, [to_units(item, BVS_SCALE) for item in BVS_THRESHOLDS[level]]))
-        rows.append(_ability(f'ability.stnb.{level}', SERIES_MASTERY, 'stnb', DIRECTION_ASC, level, STYLE_ANY, list(STNB_THRESHOLDS)))
-        rows.append(_ability(f'ability.time.nf.{level}', SERIES_FLAGLESS_BREAKTHROUGH, 'timems', DIRECTION_DESC, level, STYLE_NF, [second * 1000 for second in TIME_SECONDS[level]]))
-        rows.append(_ability(f'ability.bvs.nf.{level}', SERIES_FLAGLESS_SPEED, 'bvs', DIRECTION_ASC, level, STYLE_NF, [to_units(item, BVS_SCALE) for item in NF_BVS_THRESHOLDS[level]]))
-        rows.append(_ability(f'ability.stnb.nf.{level}', SERIES_FLAGLESS_MASTERY, 'stnb', DIRECTION_ASC, level, STYLE_NF, list(STNB_THRESHOLDS)))
-        rows.append(_ability(f'ability.thrp.nf.{level}', SERIES_FLAGLESS_PRECISION, 'thrp', DIRECTION_ASC, level, STYLE_NF, [to_units(item, THRP_SCALE) for item in NF_THRP_THRESHOLDS]))
-        rows.append(_ability(f'ability.thrp.fl.{level}', SERIES_FLAGGED_PRECISION, 'thrp', DIRECTION_ASC, level, STYLE_FL, [to_units(item, THRP_SCALE) for item in FL_THRP_THRESHOLDS[level]]))
+        rows.append(_ability(f'ability.time.{level}', Medal_TextChoices.Series.BREAKTHROUGH, 'timems', Medal_TextChoices.Direction.DESC, level, Medal_TextChoices.Style.ANY, [second * 1000 for second in TIME_SECONDS[level]]))
+        rows.append(_ability(f'ability.bvs.{level}', Medal_TextChoices.Series.SPEED, 'bvs', Medal_TextChoices.Direction.ASC, level, Medal_TextChoices.Style.ANY, [to_units(item, BVS_SCALE) for item in BVS_THRESHOLDS[level]]))
+        rows.append(_ability(f'ability.stnb.{level}', Medal_TextChoices.Series.MASTERY, 'stnb', Medal_TextChoices.Direction.ASC, level, Medal_TextChoices.Style.ANY, list(STNB_THRESHOLDS)))
+        rows.append(_ability(f'ability.time.nf.{level}', Medal_TextChoices.Series.FLAGLESS_BREAKTHROUGH, 'timems', Medal_TextChoices.Direction.DESC, level, Medal_TextChoices.Style.NF, [second * 1000 for second in TIME_SECONDS[level]]))
+        rows.append(_ability(f'ability.bvs.nf.{level}', Medal_TextChoices.Series.FLAGLESS_SPEED, 'bvs', Medal_TextChoices.Direction.ASC, level, Medal_TextChoices.Style.NF, [to_units(item, BVS_SCALE) for item in NF_BVS_THRESHOLDS[level]]))
+        rows.append(_ability(f'ability.stnb.nf.{level}', Medal_TextChoices.Series.FLAGLESS_MASTERY, 'stnb', Medal_TextChoices.Direction.ASC, level, Medal_TextChoices.Style.NF, list(STNB_THRESHOLDS)))
+        rows.append(_ability(f'ability.thrp.nf.{level}', Medal_TextChoices.Series.FLAGLESS_PRECISION, 'thrp', Medal_TextChoices.Direction.ASC, level, Medal_TextChoices.Style.NF, [to_units(item, THRP_SCALE) for item in NF_THRP_THRESHOLDS]))
+        rows.append(_ability(f'ability.thrp.fl.{level}', Medal_TextChoices.Series.FLAGGED_PRECISION, 'thrp', Medal_TextChoices.Direction.ASC, level, Medal_TextChoices.Style.FL, [to_units(item, THRP_SCALE) for item in FL_THRP_THRESHOLDS[level]]))
     rows.append(_spec(
-        code='ability.thrp.nf.three', series=SERIES_THREE_FLAGLESS, kind=KIND_COMPOSITE, metric='thrp', direction=DIRECTION_ASC, style=STYLE_NF,
+        code='ability.thrp.nf.three', series=Medal_TextChoices.Series.THREE_FLAGLESS_PRECISION, kind=Medal_TextChoices.Kind.COMPOSITE, metric='thrp', direction=Medal_TextChoices.Direction.ASC, style=Medal_TextChoices.Style.NF,
         thresholds=[to_units(item, THRP_SCALE) for item in THREE_NF_THRP],
         depends_on=[f'ability.thrp.nf.{level}' for level in STANDARD_LEVELS],
     ))
     rows.append(_spec(
-        code='ability.thrp.fl.three', series=SERIES_THREE_FLAGGED, kind=KIND_COMPOSITE, metric='thrp', direction=DIRECTION_ASC, style=STYLE_FL,
+        code='ability.thrp.fl.three', series=Medal_TextChoices.Series.THREE_FLAGGED_PRECISION, kind=Medal_TextChoices.Kind.COMPOSITE, metric='thrp', direction=Medal_TextChoices.Direction.ASC, style=Medal_TextChoices.Style.FL,
         thresholds=[to_units(item, THRP_SCALE) for item in THREE_FL_THRP],
         depends_on=[f'ability.thrp.fl.{level}' for level in STANDARD_LEVELS],
     ))

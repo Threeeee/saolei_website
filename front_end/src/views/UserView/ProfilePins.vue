@@ -18,6 +18,7 @@ import MedalArt from './MedalArt.vue';
 
 import type { MedalItem } from '@/services/medalService';
 import { fetchPlayerMedals, medalSeriesLabel, medalStageLabel, subscribePlayerMedals } from '@/services/medalService';
+import { MedalDirection, MedalKind } from '@/utils/medal_const';
 
 const props = defineProps({
     userId: { type: Number, required: true },
@@ -37,7 +38,7 @@ function stageLabel(pin: MedalItem) {
 }
 
 function showRing(pin: MedalItem) {
-    return pin.kind === 'count' && pin.direction === 'asc' && pin.next_threshold === null && pin.stage !== null && pin.current_value !== null && pin.current_value > pin.stage;
+    return pin.kind === MedalKind.COUNT && pin.direction === MedalDirection.ASC && pin.next_threshold === null && pin.stage !== null && pin.current_value !== null && pin.current_value > pin.stage;
 }
 
 watch(() => [props.userId, viewing.value], (_, __, onCleanup) => {

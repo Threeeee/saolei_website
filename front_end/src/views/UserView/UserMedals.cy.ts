@@ -10,16 +10,17 @@ import i18n from '@/i18n';
 import type { MedalItem, PlayerMedals } from '@/services/medalService';
 import { uploadVideoFile } from '@/services/videoUploadService';
 import { store } from '@/store';
+import { MedalDirection, MedalKind, MedalSeries } from '@/utils/medal_const';
 
-function summary(scanPending: boolean, series = 'registered'): PlayerMedals {
+function summary(scanPending: boolean, series: MedalSeries = MedalSeries.REGISTERED): PlayerMedals {
     const item: MedalItem = {
-        code: series === 'reviewed' ? 'novice.review' : 'novice.realname',
+        code: series === MedalSeries.REVIEWED ? 'novice.review' : 'novice.realname',
         series,
         subseries: '',
-        kind: 'once',
+        kind: MedalKind.ONCE,
         stage: 1,
         stage_count: 1,
-        direction: 'asc',
+        direction: MedalDirection.ASC,
         current_value: 1,
         next_threshold: null,
         granted_at: '2026-01-01',
@@ -59,7 +60,7 @@ function createProfileRouter() {
         history: createMemoryHistory(),
         routes: [
             { path: '/', redirect: '/player/1/top' },
-            ...['top', 'pb', 'record', 'upload'].map((tab) => ({ path: `/player/:id/${tab}`, name: `user-${tab}`, component: page })),
+            ...['top', MedalKind.PB, 'record', 'upload'].map((tab) => ({ path: `/player/:id/${tab}`, name: `user-${tab}`, component: page })),
         ],
     });
 }
@@ -83,7 +84,7 @@ describe('player medal subscriptions', () => {
         get.onFirstCall().resolves({ data: summary(false) });
         get.onSecondCall().returns(waiting.promise);
         get.onThirdCall().returns(completed.promise);
-        get.onCall(3).resolves({ data: summary(false, 'reviewed') });
+        get.onCall(3).resolves({ data: summary(false, MedalSeries.REVIEWED) });
         cy.stub($axios, 'post').resolves({ data: { type: 'success', data: { id: 123, state: 'c' } } });
         cy.mount(defineComponent({
             expose: [],
@@ -119,7 +120,7 @@ describe('player medal subscriptions', () => {
             const old = deferred();
             const get = cy.stub($axios, 'get');
             get.onFirstCall().returns(old.promise);
-            get.onSecondCall().resolves({ data: summary(false, 'reviewed') });
+            get.onSecondCall().resolves({ data: summary(false, MedalSeries.REVIEWED) });
             cy.mount(defineComponent({
                 expose: [],
                 render: () => h(ProfilePins, { userId: playerId.value }),
@@ -199,7 +200,7 @@ describe('player medal subscriptions', () => {
         const router = createProfileRouter();
         const showSidebar = ref(true);
         const pending = deferred();
-        const updated = summary(false, 'reviewed');
+        const updated = summary(false, MedalSeries.REVIEWED);
         const get = cy.stub($axios, 'get');
         get.onFirstCall().resolves({ data: summary(false) });
         get.onSecondCall().returns(pending.promise);

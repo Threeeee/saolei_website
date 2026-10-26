@@ -1,6 +1,10 @@
+import { existsSync } from 'node:fs';
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { MedalStateRecord, PlayerMedals } from './medalService';
+
+import { MedalSeries } from '@/utils/medal_const';
 
 const { axiosGet, axiosPut, serviceConfig } = vi.hoisted(() => ({
     axiosGet: vi.fn(),
@@ -25,40 +29,53 @@ function deferred() {
 }
 
 describe('shared medal image parts', () => {
+    it('has localized names and image mappings for every serialized series', async () => {
+        const { medalArtUrl, medalSeriesLabel } = await import('./medalService');
+        for (const series of Object.values(MedalSeries)) {
+            expect(medalSeriesLabel(series, 'en')).not.toBe(series);
+            expect(medalSeriesLabel(series, 'zh-cn')).not.toBe(series);
+            const url = medalArtUrl(series, 'catalog.item', 1);
+            if (url === undefined || url === '') throw new Error(`Missing medal image mapping: ${series}`);
+            expect(url).toMatch(/^\/assets\/medals\/[\w-]+\.webp\?v=5$/);
+            const [assetPath] = url.split('?');
+            expect(existsSync(new URL(`../../public${assetPath}`, import.meta.url))).toBe(true);
+        }
+    });
+
     it('reuses one gold base and draws the number in the page', async () => {
         const { medalArtPlate, medalArtUrl } = await import('./medalService');
-        expect(medalArtUrl('speed', 'ability.bvs.e', 50000)).toBe('/assets/medals/speed.webp?v=5');
-        expect(medalArtUrl('speed', 'ability.bvs.b', 15000)).toBe('/assets/medals/speed.webp?v=5');
-        expect(medalArtPlate('speed', 50000)).toBe('5');
-        expect(medalArtPlate('speed', 15000)).toBe('1.5');
-        expect(medalArtPlate('breakthrough', 20000)).toBe('20');
-        expect(medalArtPlate('registered', 1)).toBe('');
-        expect(medalArtPlate('shareholder', 1000)).toBe('');
-        expect(medalArtUrl('registered', 'novice.realname', 1)).toBe('/assets/medals/registered.webp?v=5');
-        expect(medalArtUrl('shareholder', 'shareholder.origin', 1000)).toBe('/assets/medals/shareholder.webp?v=5');
-        expect(medalArtUrl('speed', 'ability.bvs.e', null)).toBeUndefined();
+        expect(medalArtUrl(MedalSeries.SPEED, 'ability.bvs.e', 50000)).toBe('/assets/medals/speed.webp?v=5');
+        expect(medalArtUrl(MedalSeries.SPEED, 'ability.bvs.b', 15000)).toBe('/assets/medals/speed.webp?v=5');
+        expect(medalArtPlate(MedalSeries.SPEED, 50000)).toBe('5');
+        expect(medalArtPlate(MedalSeries.SPEED, 15000)).toBe('1.5');
+        expect(medalArtPlate(MedalSeries.BREAKTHROUGH, 20000)).toBe('20');
+        expect(medalArtPlate(MedalSeries.REGISTERED, 1)).toBe('');
+        expect(medalArtPlate(MedalSeries.SHAREHOLDER, 1000)).toBe('');
+        expect(medalArtUrl(MedalSeries.REGISTERED, 'novice.realname', 1)).toBe('/assets/medals/registered.webp?v=5');
+        expect(medalArtUrl(MedalSeries.SHAREHOLDER, 'shareholder.origin', 1000)).toBe('/assets/medals/shareholder.webp?v=5');
+        expect(medalArtUrl(MedalSeries.SPEED, 'ability.bvs.e', null)).toBeUndefined();
         expect(medalArtUrl('unknown', 'unknown', 1)).toBeUndefined();
     });
 
     it('maps a medal code prefix onto the series used by the art', async () => {
         const { medalSeriesFromCode } = await import('./medalService');
-        expect(medalSeriesFromCode('ability.time.b')).toBe('breakthrough');
-        expect(medalSeriesFromCode('ability.time.nf.e')).toBe('flagless_breakthrough');
-        expect(medalSeriesFromCode('ability.bvs.i')).toBe('speed');
-        expect(medalSeriesFromCode('ability.bvs.nf.b')).toBe('flagless_speed');
-        expect(medalSeriesFromCode('ability.stnb.e')).toBe('mastery');
-        expect(medalSeriesFromCode('ability.stnb.nf.b')).toBe('flagless_mastery');
-        expect(medalSeriesFromCode('ability.thrp.nf.b')).toBe('flagless_precision');
-        expect(medalSeriesFromCode('ability.thrp.nf.three')).toBe('three_flagless_precision');
-        expect(medalSeriesFromCode('ability.thrp.fl.e')).toBe('flagged_precision');
-        expect(medalSeriesFromCode('ability.thrp.fl.three')).toBe('three_flagged_precision');
-        expect(medalSeriesFromCode('novice.realname')).toBe('registered');
-        expect(medalSeriesFromCode('novice.review')).toBe('reviewed');
-        expect(medalSeriesFromCode('novice.levels')).toBe('levels');
-        expect(medalSeriesFromCode('novice.levels_nf')).toBe('levels_nf');
-        expect(medalSeriesFromCode('novice.modes')).toBe('modes');
-        expect(medalSeriesFromCode('novice.saolei')).toBe('saolei');
-        expect(medalSeriesFromCode('shareholder.origin')).toBe('shareholder');
+        expect(medalSeriesFromCode('ability.time.b')).toBe(MedalSeries.BREAKTHROUGH);
+        expect(medalSeriesFromCode('ability.time.nf.e')).toBe(MedalSeries.FLAGLESS_BREAKTHROUGH);
+        expect(medalSeriesFromCode('ability.bvs.i')).toBe(MedalSeries.SPEED);
+        expect(medalSeriesFromCode('ability.bvs.nf.b')).toBe(MedalSeries.FLAGLESS_SPEED);
+        expect(medalSeriesFromCode('ability.stnb.e')).toBe(MedalSeries.MASTERY);
+        expect(medalSeriesFromCode('ability.stnb.nf.b')).toBe(MedalSeries.FLAGLESS_MASTERY);
+        expect(medalSeriesFromCode('ability.thrp.nf.b')).toBe(MedalSeries.FLAGLESS_PRECISION);
+        expect(medalSeriesFromCode('ability.thrp.nf.three')).toBe(MedalSeries.THREE_FLAGLESS_PRECISION);
+        expect(medalSeriesFromCode('ability.thrp.fl.e')).toBe(MedalSeries.FLAGGED_PRECISION);
+        expect(medalSeriesFromCode('ability.thrp.fl.three')).toBe(MedalSeries.THREE_FLAGGED_PRECISION);
+        expect(medalSeriesFromCode('novice.realname')).toBe(MedalSeries.REGISTERED);
+        expect(medalSeriesFromCode('novice.review')).toBe(MedalSeries.REVIEWED);
+        expect(medalSeriesFromCode('novice.levels')).toBe(MedalSeries.LEVELS);
+        expect(medalSeriesFromCode('novice.levels_nf')).toBe(MedalSeries.LEVELS_NF);
+        expect(medalSeriesFromCode('novice.modes')).toBe(MedalSeries.MODES);
+        expect(medalSeriesFromCode('novice.saolei')).toBe(MedalSeries.SAOLEI);
+        expect(medalSeriesFromCode('shareholder.origin')).toBe(MedalSeries.SHAREHOLDER);
         expect(medalSeriesFromCode('manual.override')).toBe('');
     });
 });
@@ -427,14 +444,22 @@ describe('bounded synchronization after uploads', () => {
 });
 
 describe('medalCaption', () => {
+    it.each([
+        [MedalSeries.THREE_FLAGLESS_PRECISION, 'ability.thrp.nf.three', 'Three-Tier Flagless Precision · 0.95'],
+        [MedalSeries.THREE_FLAGGED_PRECISION, 'ability.thrp.fl.three', 'Three-Tier Flagged Precision · 0.95'],
+    ])('formats three-tier series %s without adding a level', async (series, code, title) => {
+        const { medalCaption } = await import('./medalService');
+        expect(medalCaption(series, code, 95000, 'en').title).toBe(title);
+    });
+
     it('names a worn ability medal from its code and stage', async () => {
         const { medalCaption } = await import('./medalService');
-        expect(medalCaption('breakthrough', 'ability.time.e', 30000, 'en')).toEqual({
+        expect(medalCaption(MedalSeries.BREAKTHROUGH, 'ability.time.e', 30000, 'en')).toEqual({
             title: 'Expert Breakthrough · Sub30',
             meaning: 'Expert best time reached 30s.',
             flavor: '',
         });
-        expect(medalCaption('shareholder', 'shareholder.origin', 1000, 'zh-cn')).toMatchObject({
+        expect(medalCaption(MedalSeries.SHAREHOLDER, 'shareholder.origin', 1000, 'zh-cn')).toMatchObject({
             title: '原始股东·1000',
             flavor: '老资历',
         });

@@ -10,14 +10,14 @@ from django.utils import timezone
 from django_tasks_db.models import DBTaskResult
 
 from accountlink.models import AccountLinkQueue, Platform
-from config.text_choices import MS_TextChoices
+from config.text_choices import Medal_TextChoices, MS_TextChoices
 from userprofile.models import UserProfile
 from videomanager.models import ExpandVideoModel, STNB_COEFFICIENTS, VideoModel
 from .models import MedalContribution, MedalDefinition, MedalGrant, MedalPins, MedalScan, PlayerProgress
 from .services import active_definitions, ensure_basic_definitions, ensure_shareholder_definition, evaluate_min_video_id, evaluate_player, player_summary, replace_pins, write_stage
 from .signals import enqueue_medal_refresh_on_video
 from .tasks import task_backfill_player_medals, task_refresh_player_medals
-from .utils import BVS_SCALE, DIRECTION_ASC, DIRECTION_DESC, KIND_MANUAL, KIND_ONCE, KIND_PB, MAX_PINS, NOVICE_LEVELS, NOVICE_LEVELS_NF, NOVICE_MODES, NOVICE_REALNAME, NOVICE_REVIEW, NOVICE_SAOLEI, open_modes, reached_asc_stage, REFRESH_COALESCE_DELAY, SHAREHOLDER_CODE, STANDARD_LEVELS, THRP_SCALE, to_units
+from .utils import BVS_SCALE, MAX_PINS, NOVICE_LEVELS, NOVICE_LEVELS_NF, NOVICE_MODES, NOVICE_REALNAME, NOVICE_REVIEW, NOVICE_SAOLEI, open_modes, reached_asc_stage, REFRESH_COALESCE_DELAY, SHAREHOLDER_CODE, STANDARD_LEVELS, THRP_SCALE, to_units
 
 
 @override_settings(
@@ -60,13 +60,44 @@ class MedalShellFixture(MedalTestCase):
     def setUp(self):
         self.user = UserProfile.objects.create_user(username='medal_user', email='medal-user@example.com', password='password')
         self.definition = MedalDefinition.objects.create(
-            code='ability.time.b', series='能力', subseries='破限', kind=KIND_PB, metric='timems',
-            direction=DIRECTION_DESC, level='b', thresholds=[60000, 50000, 20000], score_by_stage=[3, 5, 8], active=True,
+            code='ability.time.b', series='能力', subseries='破限', kind=Medal_TextChoices.Kind.PB, metric='timems',
+            direction=Medal_TextChoices.Direction.DESC, level='b', thresholds=[60000, 50000, 20000], score_by_stage=[3, 5, 8], active=True,
         )
         self.granted_at = timezone.now() - timedelta(days=3)
 
 
 class MedalShellTests(MedalShellFixture):
+    def test_catalog_serializes_compact_enum_values(self):
+        response = self.client.get('/api/medal/catalog')
+        self.assertEqual(response.status_code, 200)
+        rows = response.json()
+        self.assertTrue(rows)
+        for row in rows:
+            with self.subTest(code=row['code']):
+                self.assertIn(row['series'], Medal_TextChoices.Series.values)
+                self.assertLessEqual(len(row['series']), 2)
+                self.assertIn(row['kind'], Medal_TextChoices.Kind.values)
+                self.assertEqual(len(row['kind']), 1)
+                self.assertIn(row['direction'], Medal_TextChoices.Direction.values)
+                self.assertEqual(len(row['direction']), 1)
+                self.assertIn(row['style'], ['', *Medal_TextChoices.Style.values])
+                self.assertLessEqual(len(row['style']), 1)
+                self.assertIn(row['level'], ['', *Medal_TextChoices.Level.values])
+
+    def test_summary_and_pins_serialize_compact_enum_values(self):
+        MedalScan.objects.create(user=self.user, scanned_at=timezone.now())
+        grant = write_stage(self.user, self.definition, stage=50000, granted_at=self.granted_at)
+        replace_pins(self.user, [grant.id])
+        response = self.client.get(f'/api/medal/players/{self.user.id}')
+        self.assertEqual(response.status_code, 200)
+        summary = response.json()
+        items = [item for group in summary['series'] for item in group['items'] if item['code'] == self.definition.code]
+        self.assertEqual(len(items), 1)
+        self.assertEqual(len(summary['pins']), 1)
+        expected = (Medal_TextChoices.Series.BREAKTHROUGH.value, Medal_TextChoices.Kind.PB.value, Medal_TextChoices.Direction.DESC.value)
+        for item in [items[0], summary['pins'][0]]:
+            self.assertEqual((item['series'], item['kind'], item['direction']), expected)
+
     def test_catalog_cache_hit_does_not_query_definitions(self):
         expected = active_definitions()
         with self.assertNumQueries(0):
@@ -123,7 +154,7 @@ class MedalShellTests(MedalShellFixture):
 
     def test_manual_grant_is_not_revoked_by_stage_zero(self):
         manual = MedalDefinition.objects.create(
-            code='manual.sample', series='纪念', kind=KIND_MANUAL, metric='manual', direction=DIRECTION_ASC, thresholds=[], active=True,
+            code='manual.sample', series='纪念', kind=Medal_TextChoices.Kind.MANUAL, metric='manual', direction=Medal_TextChoices.Direction.ASC, thresholds=[], active=True,
         )
         grant = write_stage(self.user, manual, stage=1, current_value=1, granted_at=self.granted_at, evidence={'reason': '早期建设'})
         kept = write_stage(self.user, manual, stage=0, current_value=0, granted_at=timezone.now())
@@ -138,10 +169,10 @@ class MedalShellTests(MedalShellFixture):
 
     def test_catalog_hides_inactive_and_locked_hidden(self):
         MedalDefinition.objects.create(
-            code='ability.off', series='能力', kind=KIND_PB, metric='timems', direction=DIRECTION_DESC, thresholds=[60000], active=False,
+            code='ability.off', series='能力', kind=Medal_TextChoices.Kind.PB, metric='timems', direction=Medal_TextChoices.Direction.DESC, thresholds=[60000], active=False,
         )
         hidden = MedalDefinition.objects.create(
-            code='hidden.sample', series='隐藏', kind=KIND_ONCE, metric='timems', direction=DIRECTION_ASC,
+            code='hidden.sample', series='隐藏', kind=Medal_TextChoices.Kind.ONCE, metric='timems', direction=Medal_TextChoices.Direction.ASC,
             thresholds=[1], hidden=True, active=True, annotation='彩蛋',
         )
         anonymous = self.client.get('/api/medal/catalog')
@@ -174,7 +205,7 @@ class MedalShellTests(MedalShellFixture):
 
     def test_locked_hidden_is_absent_from_player_summary(self):
         MedalDefinition.objects.create(
-            code='hidden.locked', series='隐藏', kind=KIND_ONCE, metric='timems', direction=DIRECTION_ASC, thresholds=[1], hidden=True, active=True,
+            code='hidden.locked', series='隐藏', kind=Medal_TextChoices.Kind.ONCE, metric='timems', direction=Medal_TextChoices.Direction.ASC, thresholds=[1], hidden=True, active=True,
         )
         response = self.client.get(f'/api/medal/players/{self.user.id}')
         self.assertEqual(response.status_code, 200)
@@ -189,7 +220,7 @@ class MedalShellTests(MedalShellFixture):
     def test_pins_belong_to_the_owner_and_keep_order(self):
         other = UserProfile.objects.create_user(username='medal_other', email='medal-other@example.com', password='password')
         second = MedalDefinition.objects.create(
-            code='ability.bvs.b', series='能力', subseries='神速', kind=KIND_PB, metric='bvs', direction=DIRECTION_ASC, thresholds=[10000], active=True,
+            code='ability.bvs.b', series='能力', subseries='神速', kind=Medal_TextChoices.Kind.PB, metric='bvs', direction=Medal_TextChoices.Direction.ASC, thresholds=[10000], active=True,
         )
         own = write_stage(self.user, self.definition, stage=60000, current_value=59000, granted_at=self.granted_at)
         other_grant = write_stage(other, second, stage=10000, current_value=10000, granted_at=self.granted_at)
@@ -237,7 +268,7 @@ class MedalShellTests(MedalShellFixture):
     def test_staff_grant_and_revoke(self):
         staff = UserProfile.objects.create_user(username='medal_staff', email='medal-staff@example.com', password='password', is_staff=True)
         MedalDefinition.objects.create(
-            code='manual.sample', series='纪念', kind=KIND_MANUAL, metric='manual', direction=DIRECTION_ASC, thresholds=[1], active=True,
+            code='manual.sample', series='纪念', kind=Medal_TextChoices.Kind.MANUAL, metric='manual', direction=Medal_TextChoices.Direction.ASC, thresholds=[1], active=True,
         )
         body = {'code': 'manual.sample', 'user_id': self.user.id, 'reason': '早期建设', 'granted_on': '2020-01-02'}
         self.client.force_login(self.user)
@@ -470,7 +501,7 @@ class BasicMedalTests(MedalTestCase):
         self.assertNotEqual(to_units(1.5, BVS_SCALE), 2)
         evaluate_player(self.user.id)
         definition = MedalDefinition.objects.get(code='ability.bvs.b')
-        self.assertEqual(definition.series, 'speed')
+        self.assertEqual(definition.series, Medal_TextChoices.Series.SPEED)
         self.assertEqual(definition.thresholds[1], 15000)
         self.assertTrue(definition.active)
         self.assertFalse(definition.hidden)
@@ -482,7 +513,7 @@ class BasicMedalTests(MedalTestCase):
         ensure_basic_definitions()
         kept = MedalDefinition.objects.get(code='ability.bvs.b')
         self.assertEqual(kept.thresholds, [1])
-        self.assertEqual(kept.series, 'speed')
+        self.assertEqual(kept.series, Medal_TextChoices.Series.SPEED)
         self.assertTrue(any(index.name == 'video_player_state_level_idx' for index in VideoModel._meta.indexes))
 
     def test_time_upgrades_keeps_evidence_then_drops(self):
@@ -655,7 +686,7 @@ class BasicMedalTests(MedalTestCase):
         evaluate_player(self.user.id)
         self.assertIsNone(self.active(NOVICE_SAOLEI))
         self.assertFalse(MedalDefinition.objects.exclude(code=NOVICE_SAOLEI).filter(metric='platform').exists())
-        self.assertEqual(MedalDefinition.objects.get(code=NOVICE_SAOLEI).series, 'saolei')
+        self.assertEqual(MedalDefinition.objects.get(code=NOVICE_SAOLEI).series, Medal_TextChoices.Series.SAOLEI)
         link = AccountLinkQueue.objects.get(platform=Platform.SAOLEI, userprofile=self.user)
         link.verified = True
         link.save(update_fields=['verified'])

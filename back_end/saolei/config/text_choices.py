@@ -55,40 +55,40 @@ class Saolei_TextChoices:
 
 class Medal_TextChoices:
     class Series(TextChoices):
-        BREAKTHROUGH = 'breakthrough', ('破境')
-        SPEED = 'speed', ('神速')
-        MASTERY = 'mastery', ('通明')
-        FLAGLESS_BREAKTHROUGH = 'flagless_breakthrough', ('盲扫破境')
-        FLAGLESS_SPEED = 'flagless_speed', ('盲扫神速')
-        FLAGLESS_MASTERY = 'flagless_mastery', ('盲扫通明')
-        FLAGLESS_PRECISION = 'flagless_precision', ('盲扫·精工')
-        FLAGGED_PRECISION = 'flagged_precision', ('标旗·精工')
-        THREE_FLAGLESS_PRECISION = 'three_flagless_precision', ('三阶盲扫·精工')
-        THREE_FLAGGED_PRECISION = 'three_flagged_precision', ('三阶标旗·精工')
-        REGISTERED = 'registered', ('实名在册')
-        REVIEWED = 'reviewed', ('录像过审')
-        LEVELS = 'levels', ('扫雷新秀')
-        LEVELS_NF = 'levels_nf', ('盲扫新秀')
-        MODES = 'modes', ('走马观花')
-        SAOLEI = 'saolei', ('旧迹新篇')
-        SHAREHOLDER = 'shareholder', ('原始股东')
+        BREAKTHROUGH = 'b', ('破境')
+        SPEED = 's', ('神速')
+        MASTERY = 'm', ('通明')
+        FLAGLESS_BREAKTHROUGH = 'bn', ('盲扫破境')
+        FLAGLESS_SPEED = 'sn', ('盲扫神速')
+        FLAGLESS_MASTERY = 'mn', ('盲扫通明')
+        FLAGLESS_PRECISION = 'pn', ('盲扫·精工')
+        FLAGGED_PRECISION = 'pf', ('标旗·精工')
+        THREE_FLAGLESS_PRECISION = 'tn', ('三阶盲扫·精工')
+        THREE_FLAGGED_PRECISION = 'tf', ('三阶标旗·精工')
+        REGISTERED = 'r', ('实名在册')
+        REVIEWED = 'v', ('录像过审')
+        LEVELS = 'l', ('扫雷新秀')
+        LEVELS_NF = 'ln', ('盲扫新秀')
+        MODES = 'o', ('走马观花')
+        SAOLEI = 'a', ('旧迹新篇')
+        SHAREHOLDER = 'h', ('原始股东')
 
     class Kind(TextChoices):
-        PB = 'pb', ('pb')
-        COMPOSITE = 'composite', ('composite')
-        ONCE = 'once', ('once')
-        COUNT = 'count', ('count')
-        BV_SET = 'bv_set', ('bv_set')
-        CELL_MASK = 'cell_mask', ('cell_mask')
-        EVENT_PLACE = 'event_place', ('event_place')
-        GSC_STAT = 'gsc_stat', ('gsc_stat')
-        GSC_PLACE = 'gsc_place', ('gsc_place')
-        MANUAL = 'manual', ('manual')
-        MIN_VIDEO_ID = 'min_video_id', ('min_video_id')
+        PB = 'p', ('pb')
+        COMPOSITE = 'c', ('composite')
+        ONCE = 'o', ('once')
+        COUNT = 'n', ('count')
+        BV_SET = 'b', ('bv_set')
+        CELL_MASK = 'k', ('cell_mask')
+        EVENT_PLACE = 'e', ('event_place')
+        GSC_STAT = 's', ('gsc_stat')
+        GSC_PLACE = 'g', ('gsc_place')
+        MANUAL = 'm', ('manual')
+        MIN_VIDEO_ID = 'i', ('min_video_id')
 
     class Direction(TextChoices):
-        ASC = 'asc', ('asc')
-        DESC = 'desc', ('desc')
+        ASC = 'a', ('asc')
+        DESC = 'd', ('desc')
 
     class Level(TextChoices):
         BEGINNER = 'b', ('b')
@@ -96,9 +96,9 @@ class Medal_TextChoices:
         EXPERT = 'e', ('e')
 
     class Style(TextChoices):
-        ANY = 'any', ('any')
-        NF = 'nf', ('nf')
-        FL = 'fl', ('fl')
+        ANY = 'a', ('any')
+        NF = 'n', ('nf')
+        FL = 'f', ('fl')
 
 
 class Tournament_TextChoices:

@@ -3,16 +3,18 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MedalOverrideInput, StaffMedalDefinition } from './staffMedalService';
 import { fetchStaffMedalCatalog, fetchStaffPlayerMedals, setMedalOverride, staffMedalStages, validMedalOverride } from './staffMedalService';
 
+import { MedalDirection, MedalKind, MedalSeries } from '@/utils/medal_const';
+
 const { get, post } = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }));
 vi.mock('@/http', () => ({ default: { get, post } }));
 
 const definition: StaffMedalDefinition = {
     code: 'time.b',
-    series: 'breakthrough',
+    series: MedalSeries.BREAKTHROUGH,
     subseries: '',
-    kind: 'pb',
+    kind: MedalKind.PB,
     metric: 'time',
-    direction: 'desc',
+    direction: MedalDirection.DESC,
     level: 'b',
     style: '',
     thresholds: [10_000, 20_000],
@@ -44,7 +46,7 @@ describe('staff medal management', () => {
     });
 
     it('offers the default stage 1 for manual medals without configured thresholds', () => {
-        const manual = { ...definition, kind: 'manual', thresholds: [] };
+        const manual = { ...definition, kind: MedalKind.MANUAL, thresholds: [] };
         expect(staffMedalStages(manual)).toEqual([1]);
         expect(validMedalOverride({ ...input, stage: 1 }, manual, false)).toBe(true);
         expect(validMedalOverride({ ...input, stage: 2 }, manual, false)).toBe(false);
@@ -52,12 +54,12 @@ describe('staff medal management', () => {
     });
 
     it('rejects scoped ordinary grants and blocks, while allowing legacy overrides to be removed', () => {
-        for (const kind of ['pb', 'once', 'composite', 'min_video_id']) {
+        for (const kind of [MedalKind.PB, MedalKind.ONCE, MedalKind.COMPOSITE, MedalKind.COUNT, MedalKind.BV_SET, MedalKind.CELL_MASK, MedalKind.MIN_VIDEO_ID]) {
             expect(validMedalOverride({ ...input, scope_key: '2026' }, { ...definition, kind }, false)).toBe(false);
             expect(validMedalOverride({ ...input, scope_key: '2026', mode: 'revoke' }, { ...definition, kind }, false)).toBe(false);
             expect(validMedalOverride({ ...input, scope_key: '2026', mode: 'auto' }, { ...definition, kind }, true)).toBe(true);
         }
-        for (const kind of ['manual', 'event_place', 'gsc_stat', 'gsc_place']) {
+        for (const kind of [MedalKind.MANUAL, MedalKind.EVENT_PLACE, MedalKind.GSC_STAT, MedalKind.GSC_PLACE]) {
             expect(validMedalOverride({ ...input, scope_key: '2026' }, { ...definition, kind }, false)).toBe(true);
         }
     });
